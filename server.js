@@ -1,7 +1,9 @@
 const express = require("express"); // express 패키지를 import
 const session = require("express-session");
-
 const app = express();
+
+const maria = require("./src/maria");
+maria.connect();
 
 app.use(
   session({
@@ -17,11 +19,17 @@ app.use(express.json()); // object를 가지고 활용할 수 있게 해주는 �
 const accountsRouter = require("./src/routes/accounts");
 app.use("/accounts", accountsRouter);
 
-const postsRouter = require("./src/routes/posts");
-app.use("/posts", postsRouter);
+const noticePostsRouter = require("./src/routes/notice-posts");
+app.use("/notice-posts", noticePostsRouter);
 
-const commentsRouter = require("./src/routes/comments");
-app.use("/comments", commentsRouter);
+const noticeCommentsRouter = require("./src/routes/notice-comments");
+app.use("/notice-comments", noticeCommentsRouter);
+
+const freePostsRouter = require("./src/routes/free-posts");
+app.use("/free-posts", freePostsRouter);
+
+const freeCommentsRouter = require("./src/routes/free-comments");
+app.use("/free-comments", freeCommentsRouter);
 
 app.listen(8000, () => {
   console.log("8000번 포트에서 웹 서버 실행");

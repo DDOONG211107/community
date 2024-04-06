@@ -1,7 +1,11 @@
 const router = require("express").Router();
 
+const regex = {
+  commentContentReg: /^.{1,200}$/,
+};
+
 // 댓글 목록 불러오기 api
-router.get("/comments", (req, res) => {
+router.get("/", (req, res) => {
   const { board, post } = req.body;
 
   const result = {
@@ -50,7 +54,7 @@ router.get("/comments", (req, res) => {
   }
 });
 
-router.post("/comments", (req, res) => {
+router.post("/", (req, res) => {
   const { accountIdx } = req.session;
   const { content, board, post } = req.body;
 
@@ -87,7 +91,7 @@ router.post("/comments", (req, res) => {
   }
 });
 
-router.put("/comments/:comment", (req, res) => {
+router.put("/:comment", (req, res) => {
   const { comment } = req.params;
   const { accountIdx } = req.session;
   const { content, commentWriterIdx, board, post } = req.body;
@@ -129,7 +133,7 @@ router.put("/comments/:comment", (req, res) => {
   }
 });
 
-router.delete("/comments/:comment", (req, res) => {
+router.delete("/:comment", (req, res) => {
   const { comment } = req.params;
   const { accountIdx } = req.session;
   const { content, commentWriterIdx, board, post } = req.body;

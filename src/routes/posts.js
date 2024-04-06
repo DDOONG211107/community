@@ -1,5 +1,10 @@
 const router = require("express").Router();
 
+const regex = {
+  titleReg: /^.{1,20}$/,
+  postContentReg: /^.{1,500}$/,
+};
+
 // 게시글 목록 불러오기
 router.get("/", (req, res) => {
   const { board } = req.body;
