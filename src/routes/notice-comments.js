@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const mariaDB = require("../maria");
+const { checkIsLogged } = require("../checkAuthorization");
 
 const regex = {
   commentContentReg: /^.{1,200}$/,
@@ -56,7 +57,7 @@ router.get("/", (req, res) => {
   }
 });
 
-router.post("/", (req, res) => {
+router.post("/", checkIsLogged, (req, res) => {
   const { accountIdx } = req.session;
   const { content, notice } = req.body;
 
@@ -69,10 +70,6 @@ router.post("/", (req, res) => {
   try {
     if (!notice) {
       throw { message: "게시글 idx 없음", status: 404 };
-    }
-
-    if (!accountIdx) {
-      throw { message: "로그인 후 이용", status: 401 };
     }
 
     if (!regex.commentContentReg.test(content)) {
@@ -193,7 +190,7 @@ router.put("/:comment", (req, res) => {
 
 router.delete("/:comment", (req, res) => {
   const { comment } = req.params;
-  const { accountIdx } = req.session;
+  const { accountIdx, role } = req.session;
   const { content, commentWriterIdx } = req.body;
 
   const result = {
@@ -208,7 +205,7 @@ router.delete("/:comment", (req, res) => {
     }
 
     if (accountIdx != commentWriterIdx) {
-      throw { message: "not authorized:댓글 삭제", status: 401 };
+      throw { message: "not authorized:댓글 삭제", status: 403 };
     }
 
     if (!regex.commentContentReg.test(content)) {

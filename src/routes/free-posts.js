@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const mariaDB = require("../maria");
+const { checkIsLogged } = require("../checkAuthorization");
 
 const regex = {
   titleReg: /^.{1,20}$/,
@@ -69,7 +70,7 @@ router.get("/:free", (req, res) => {
 });
 
 // 게시글 작성 api
-router.post("/", (req, res) => {
+router.post("/", checkIsLogged, (req, res) => {
   const { accountIdx } = req.session;
   const { title, content } = req.body;
 
@@ -80,10 +81,6 @@ router.post("/", (req, res) => {
   };
 
   try {
-    if (!accountIdx) {
-      throw { message: "로그인 후 이용", status: 401 };
-    }
-
     if (!regex.titleReg.test(title)) {
       throw { message: "invalid title size", status: 400 };
     }
@@ -130,7 +127,7 @@ router.put("/:free", (req, res) => {
     }
 
     if (accountIdx != postWriterIdx) {
-      throw { message: "not authorized: 게시글 수정", status: 401 };
+      throw { message: "not authorized: 게시글 수정", status: 403 };
     }
 
     if (!regex.titleReg.test(title)) {
@@ -185,7 +182,7 @@ router.delete("/:free", (req, res) => {
     }
 
     if (accountIdx != postWriterIdx) {
-      throw { message: "not authorized: 게시글 삭제", status: 401 };
+      throw { message: "not authorized: 게시글 삭제", status: 403 };
     }
 
     // db통신 -> 게시글 삭제하기

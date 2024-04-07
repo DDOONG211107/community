@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const mariaDB = require("../maria");
+const { checkIsAdmin } = require("../checkAuthorization");
 
 const regex = {
   titleReg: /^.{1,20}$/,
@@ -26,75 +27,7 @@ router.get("/", (req, res) => {
       res.status(200).send(result);
     }
   });
-
-  // result.message = "get notice-posts success";
-  // console.log(postsList);
-  // result.data = {
-  //   postsList,
-  //   // 실제로는 db에서 가져와야 하는 데이터
-  //   //   postList: [
-  //   //     { idx: 1, title: "test title1", creationTime: "2024-03-31T11:22:33" },
-  //   //     { idx: 2, title: "test title2", creationTime: "2024-03-31T11:22:44" },
-  //   //     { idx: 3, title: "test title3", creationTime: "2024-03-31T11:33:44" },
-  //   //     { idx: 4, title: "test title4", creationTime: "2024-03-31T11:33:55" },
-  //   //     { idx: 5, title: "test title5", creationTime: "2024-03-31T11:44:22" },
-  //   //   ],
-  // };
-  // result.success = true;
-  // res.status(200).send(result);
 });
-
-// 게시글 불러오는 api
-// router.get("/:notice", async (req, res) => {
-//   const { notice } = req.params;
-
-//   const result = {
-//     success: false,
-//     message: "",
-//     data: null,
-//   };
-
-//   try {
-//     if (!notice) {
-//       throw { message: "게시글 idx 없음", status: 404 };
-//     }
-
-//     // db통신 -> 게시판 글 목록 불러오기
-
-//     sql = "SELECT * FROM notice_post WHERE idx = " + notice;
-//     await mariaDB.query(sql, function (err, rows) {
-//       if (err) {
-//         throw err;
-//       }
-//       post = rows;
-
-//       if (post.length == 0) {
-//         throw new Error({ message: "게시글 idx 없음", status: 404 });
-//         // throw err;
-//       }
-
-//       result.message = "get notice-post success";
-//       result.data = { post };
-//       result.success = true;
-
-//       res.status(200).send(result);
-//     });
-
-//     // result.message = "get post success";
-//     // result.data = {
-//     //   idx: 1,
-//     //   title: "test title1",
-//     //   content: "test content1",
-//     //   accountIdx: 1,
-//     //   creationTime: "2024-03-31T11:22:44",
-//     // };
-//     // result.success = true;
-//     // res.status(200).send(result);
-//   } catch (err) {
-//     result.message = err.message;
-//     res.status(err.status || 500).send(result);
-//   }
-// });
 
 router.get("/:notice", async (req, res) => {
   const { notice } = req.params;
@@ -109,8 +42,6 @@ router.get("/:notice", async (req, res) => {
     if (!notice) {
       throw { message: "게시글 idx 없음", status: 404 };
     }
-
-    // db통신 -> 게시판 글 불러오기
 
     mariaDB.query(
       "SELECT * FROM notice_post WHERE idx = ?",
@@ -137,7 +68,7 @@ router.get("/:notice", async (req, res) => {
 });
 
 // 게시글 작성 api
-router.post("/", async (req, res) => {
+router.post("/", checkIsAdmin, async (req, res) => {
   const { accountIdx } = req.session;
   const { title, content } = req.body;
 
@@ -148,10 +79,6 @@ router.post("/", async (req, res) => {
   };
 
   try {
-    if (!accountIdx) {
-      throw { message: "로그인 후 이용", status: 401 };
-    }
-
     if (!regex.titleReg.test(title)) {
       throw { message: "invalid title size", status: 400 };
     }
@@ -182,7 +109,7 @@ router.post("/", async (req, res) => {
 });
 
 // 게시글 수정 api
-router.put("/:notice", async (req, res) => {
+router.put("/:notice", checkIsAdmin, async (req, res) => {
   const { notice } = req.params;
   const { accountIdx } = req.session;
   const { title, content, postWriterIdx } = req.body;
@@ -199,7 +126,7 @@ router.put("/:notice", async (req, res) => {
     }
 
     if (accountIdx != postWriterIdx) {
-      throw { message: "not authorized: 게시글 수정", status: 401 };
+      throw { message: "not authorized: 게시글 수정", status: 403 };
     }
 
     if (!regex.titleReg.test(title)) {
@@ -238,7 +165,7 @@ router.put("/:notice", async (req, res) => {
 });
 
 // 게시글 삭제 api
-router.delete("/:notice", async (req, res) => {
+router.delete("/:notice", checkIsAdmin, async (req, res) => {
   const { notice } = req.params;
   const { accountIdx } = req.session;
   const { postWriterIdx } = req.body;
@@ -255,7 +182,7 @@ router.delete("/:notice", async (req, res) => {
     }
 
     if (accountIdx != postWriterIdx) {
-      throw { message: "not authorized: 게시글 삭제", status: 401 };
+      throw { message: "not authorized: 게시글 삭제", status: 403 };
     }
 
     // db통신 -> 게시글 삭제하기

@@ -1,5 +1,6 @@
 const router = require("express").Router();
 const mariaDB = require("../maria");
+const { checkIsLogged } = require("../checkAuthorization");
 
 const regex = {
   idReg: /^[a-zA-Z0-9]{1,20}$/,
@@ -39,6 +40,8 @@ router.post("/login", (req, res) => {
           res.status(400).send(result);
         } else if (rows.length === 1) {
           req.session.accountIdx = rows[0].idx;
+          req.session.role = rows[0].role_idx;
+
           result.message = "login success";
           result.success = true;
           res.status(200).send(result);
@@ -62,7 +65,10 @@ router.delete("/logout", (req, res) => {
 
   try {
     req.session.destroy(function (err) {
-      console.log("로그아웃 성공");
+      if (err) {
+        res.status(500).send({ message: "서버: login failed" });
+      }
+      return;
     });
     result.message = "logout success";
     result.success = true;
@@ -321,7 +327,7 @@ router.get("/find-password", (req, res) => {
   }
 });
 
-router.get("/:idx", (req, res) => {
+router.get("/:idx", checkIsLogged, (req, res) => {
   const { accountIdx } = req.session;
   const result = {
     success: false,
@@ -330,10 +336,6 @@ router.get("/:idx", (req, res) => {
   };
 
   try {
-    if (!accountIdx) {
-      throw { message: "로그인 후 이용 가능", status: 401 };
-    }
-
     // db 통신
     mariaDB.query(
       "SELECT * FROM account WHERE idx = ?",
@@ -367,7 +369,7 @@ router.get("/:idx", (req, res) => {
   }
 });
 
-router.put("/", async (req, res) => {
+router.put("/", checkIsLogged, (req, res) => {
   const { accountIdx } = req.session;
   const { name, nickname, email, password, passwordCheck } = req.body;
   const result = {
@@ -377,10 +379,6 @@ router.put("/", async (req, res) => {
   };
 
   try {
-    if (!accountIdx) {
-      throw { message: "로그인 후 이용 가능", status: 401 };
-    }
-
     if (!regex.emailReg.test(email)) {
       throw { message: "invalid email input", status: 400 };
     }
@@ -404,6 +402,7 @@ router.put("/", async (req, res) => {
     if (password != passwordCheck) {
       throw { message: "비밀번호가 일치하지 않습니다", status: 400 };
     }
+
     mariaDB.query(
       "SELECT * FROM account WHERE email = ?",
       [email],
@@ -435,33 +434,12 @@ router.put("/", async (req, res) => {
         }
       }
     );
-
-    // db로 데이터 수정
-    // mariaDB.query(
-    //   "UPDATE notice_post SET email = ?, name = ?, nickname = ?, password = ? WHERE idx = ?",
-    //   [email, name, nickname, password, accountIdx],
-    //   (err, updatedRows) => {
-    //     if (err) {
-    //       result.message = err.sqlMessage;
-    //       res.status(500).send(result);
-    //     } else if (updatedRows.affectedRows === 0) {
-    //       result.message = "서버: 존재하지 않는 계정";
-    //       res.status(404).send(result);
-    //     } else if (updatedRows.affectedRows === 1) {
-    //       result.message = "edit profile success";
-    //       result.success = true;
-    //       res.status(200).send(result);
-    //     } else {
-    //       throw { message: "서버: db 문제가 생김", status: 500 };
-    //     }
-    //   }
-    // );
   } catch (err) {
-    res.status(err.status || 500).send({ message: err.message });
+    res.status(err.status).send({ message: err.message });
   }
 });
 
-router.delete("/", (req, res) => {
+router.delete("/", checkIsLogged, (req, res) => {
   const { accountIdx } = req.session;
   const result = {
     success: false,
@@ -470,10 +448,6 @@ router.delete("/", (req, res) => {
   };
 
   try {
-    if (!accountIdx) {
-      throw { message: "invalid session", status: 401 };
-    }
-
     // db통신 -> 회원 정보 삭제
     mariaDB.query(
       "DELETE FROM account WHERE idx = ?",
