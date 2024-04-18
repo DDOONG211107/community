@@ -1,269 +1,164 @@
 const router = require("express").Router();
-const mariaDB = require("../maria");
-const { checkIsLogged } = require("../checkAuthorization");
-
-const regex = {
-  commentContentReg: /^.{1,200}$/,
-};
+const { Client } = require("pg");
+const psqlClient = require("../database/postgreSQL");
+const { checkIsLogged } = require("../middleware/checkAuthorization");
+const { Comment_content, validate } = require("../middleware/validate");
 
 // 댓글 목록 불러오기 api
-router.get("/", (req, res) => {
-  const { free } = req.body; // 불러와야 하는 자유게시판 글의 idx
+router.get("/", async (req, res) => {
+  const { free_idx } = req.body; // 불러와야 하는 자유게시판 글의 idx
 
   const result = {
     success: false,
     message: "",
     data: null,
   };
+  const client = new Client(psqlClient);
 
   try {
-    if (!free) {
+    if (!free_idx) {
       throw { message: "게시글 idx 없음", status: 404 };
     }
 
-    // db통신 -> 댓글 목록 불러오기
-    mariaDB.query(
-      "SELECT * FROM free_post WHERE idx = ?",
-      [free],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "게시글 idx 없음";
-          res.status(404).send(result);
-        } else if (rows.length === 1) {
-          // db통신 -> 댓글 목록 불러오기
-          mariaDB.query(
-            "SELECT * FROM free_comment WHERE post_idx = ?",
-            [free],
-            (err, rows) => {
-              if (err) {
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else {
-                result.message = "get free-comments success";
-                result.data = { commentsList: rows };
-                result.success = true;
-                res.status(200).send(result);
-              }
-            }
-          );
-        }
-      }
-    );
+    await client.connect();
+    const sql = `SELECT free_board.comment.*, account.list.nickname
+    FROM free_board.comment JOIN account.list ON
+    free_board.comment.account_idx = account.list.idx
+    WHERE free_board.comment.list_idx = $1;`;
+    const values = [free_idx];
+    const data = await client.query(sql, values);
+    client.end();
+
+    result.data = data.rows;
+    result.success = true;
+    result.message = "get free comment success";
+
+    res.status(200).send(result);
   } catch (err) {
     result.message = err.message;
     res.status(err.status).send(result);
   }
 });
 
-router.post("/", checkIsLogged, (req, res) => {
-  const { accountIdx } = req.session;
-  const { content, free } = req.body;
+router.post(
+  "/",
+  [Comment_content, validate],
+  checkIsLogged,
+  async (req, res) => {
+    const { accountIdx } = req.session;
+    const { content, free_idx } = req.body;
 
-  const result = {
-    success: false,
-    message: "",
-    data: null,
-  };
+    const result = {
+      success: false,
+      message: "",
+      data: null,
+    };
+    const client = new Client(psqlClient);
 
-  try {
-    if (!free) {
-      throw { message: "게시글 idx 없음", status: 404 };
-    }
-
-    if (!regex.commentContentReg.test(content)) {
-      throw { message: "invalid content size", status: 400 };
-    }
-
-    // db통신 -> 댓글 작성하기
-    mariaDB.query(
-      "SELECT * FROM free_post WHERE idx = ?",
-      [free],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "존재하지 않는 게시글";
-          res.status(404).send(result);
-        } else if (rows.length > 1) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 1) {
-          // 이제서야 댓글 작성하기
-          mariaDB.query(
-            "INSERT INTO free_comment (content, post_idx, account_idx) VALUES (?, ?, ?)",
-            [content, free, accountIdx],
-            (err, rows) => {
-              if (err) {
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else {
-                result.message = "create free-comment success";
-                result.success = true;
-                res.status(200).send(result);
-              }
-            }
-          );
-        }
+    try {
+      if (!free_idx) {
+        throw { message: "게시글 idx 없음", status: 404 };
       }
-    );
-  } catch (err) {
-    result.message = err.message;
-    res.status(err.status).send(result);
-  }
-});
 
-router.put("/:comment", (req, res) => {
-  const { comment } = req.params;
+      await client.connect();
+      const sql = `INSERT INTO free_board.comment (content, list_idx, account_idx)
+    VALUES ($1, $2, $3) RETURNING idx;`;
+      const values = [content, free_idx, accountIdx];
+      const data = await client.query(sql, values);
+      await client.end();
+
+      if (data.rows.length == 0) {
+        result.message = "server: insert comment failed";
+        res.status(500).send(result);
+      } else if (data.rows.length == 1) {
+        result.message = "server: insert comment success";
+        result.success = true;
+        res.status(200).send(result);
+      }
+    } catch (err) {
+      if (client) {
+        client.end();
+      }
+      res.status(err.status || 500).send({ message: err.message });
+    }
+  }
+);
+
+router.put("/:comment_idx", [Comment_content, validate], async (req, res) => {
+  const { comment_idx } = req.params;
   const { accountIdx } = req.session;
-  const { content, commentWriterIdx, free } = req.body;
+  const { content } = req.body;
 
   const result = {
     success: false,
     message: "",
     data: null,
   };
+  const client = new Client(psqlClient);
 
   try {
-    if (!free) {
-      throw { message: "게시글 idx 없음", status: 404 };
-    }
-
-    if (!comment) {
+    if (!comment_idx) {
       throw { message: "댓글 idx 없음", status: 404 };
     }
 
-    if (accountIdx != commentWriterIdx) {
-      throw { message: "not authorized:댓글 수정", status: 403 };
+    await client.connect();
+    const sql = `UPDATE free_board.comment SET content = $1 WHERE
+    idx = $2 AND account_idx = $3 RETURNING content`;
+    const values = [content, comment_idx, accountIdx];
+    const data = await client.query(sql, values);
+    await client.end();
+
+    if (data.rows.length == 0) {
+      result.message = "server: edit comment failed";
+      res.status(500).send(result);
+    } else if (data.rows.length == 1) {
+      result.message = "server: comment edit success";
+      result.success = true;
+      res.status(200).send(result);
     }
-
-    if (!regex.commentContentReg.test(content)) {
-      throw { message: "invalid content size", status: 400 };
-    }
-    // db통신 -> 댓글 수정하기
-    mariaDB.query(
-      "SELECT * FROM free_comment WHERE idx = ?",
-      [comment],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "존재하지 않는 댓글";
-          res.status(404).send(result);
-        } else if (rows.length > 1) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-          // 이제 비로소 댓글 수정
-        } else if (rows.length === 1) {
-          console.log("여기 들어오긴 한다");
-          mariaDB.query(
-            "UPDATE free_comment SET content = ? WHERE idx = ?",
-            [content, comment],
-            (err, updatedRows) => {
-              console.log(content);
-              if (err) {
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else if (updatedRows.affectedRows === 0) {
-                console.log(404, content);
-
-                result.message = "서버: 댓글 수정 실패";
-                res.status(404).send(result);
-              } else if (updatedRows.affectedRows === 1) {
-                console.log(200, content);
-
-                result.message = "댓글 수정 성공";
-                result.success = true;
-                res.status(200).send(result);
-              } else {
-                result.message = "서버: 댓글 수정 실패";
-                res.status(500).send(result);
-              }
-            }
-          );
-        }
-      }
-    );
   } catch (err) {
-    result.message = err.message;
-    res.status(err.status).send(result);
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 
-router.delete("/:comment", (req, res) => {
-  const { comment } = req.params;
+router.delete("/:comment_idx", async (req, res) => {
+  const { comment_idx } = req.params;
   const { accountIdx } = req.session;
-  const { content, commentWriterIdx, free } = req.body;
 
   const result = {
     success: false,
     message: "",
     data: null,
   };
+  const client = new Client(psqlClient);
 
   try {
-    if (!free) {
-      throw { message: "게시글 idx 없음", status: 404 };
-    }
-
-    if (!comment) {
+    if (!comment_idx) {
       throw { message: "댓글 idx 없음", status: 404 };
     }
 
-    if (accountIdx != commentWriterIdx) {
-      throw { message: "not authorized:댓글 삭제", status: 403 };
-    }
+    await client.connect();
+    const sql = `DELETE FROM free_board.comment WHERE idx = $1 AND account_idx = $2 returning idx;`;
+    const values = [comment_idx, accountIdx];
+    const data = await client.query(sql, values);
+    await client.end();
 
-    if (!regex.commentContentReg.test(content)) {
-      throw { message: "invalid content size", status: 400 };
+    if (data.rows.length == 0) {
+      result.message = "server: delete comment failed";
+      res.status(500).send(result);
+    } else if (data.rows.length == 1) {
+      result.message = "server: delete comment success";
+      result.success = true;
+      res.status(200).send(result);
     }
-
-    // db통신 -> 댓글 삭제하기
-    mariaDB.query(
-      "SELECT * FROM free_comment WHERE idx = ?",
-      [comment],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "존재하지 않는 댓글";
-          res.status(404).send(result);
-        } else if (rows.length > 1) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-          // 이제 비로소 댓글 수정
-        } else if (rows.length === 1) {
-          mariaDB.query(
-            "DELETE FROM free_comment WHERE idx = ?",
-            [comment],
-            (err, updatedRows) => {
-              if (err) {
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else if (updatedRows.affectedRows === 0) {
-                result.message = "서버: 댓글 삭제 실패";
-                res.status(404).send(result);
-              } else if (updatedRows.affectedRows === 1) {
-                result.message = "댓글 삭제 성공";
-                result.success = true;
-                res.status(200).send(result);
-              } else {
-                result.message = "서버: 댓글 삭제 실패";
-                res.status(500).send(result);
-              }
-            }
-          );
-        }
-      }
-    );
   } catch (err) {
-    result.message = err.message;
-    res.status(err.status).send(result);
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 

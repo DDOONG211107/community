@@ -1,57 +1,58 @@
 const router = require("express").Router();
-const mariaDB = require("../maria");
-const { checkIsLogged } = require("../checkAuthorization");
+const { Client } = require("pg");
+const psqlClient = require("../database/postgreSQL");
+const { checkEmail, checkId } = require("../middleware/account");
+const { checkIsLogged } = require("../middleware/checkAuthorization");
+const {
+  Id,
+  Password,
+  PasswordCheck,
+  Name,
+  Nickname,
+  Email,
+  validate,
+} = require("../middleware/validate");
 
-const regex = {
-  idReg: /^[a-zA-Z0-9]{1,20}$/,
-  passwordReg: /^[a-zA-Z0-9]{1,20}$/,
-  nameReg: /^[가-힣a-zA-Z]{1,10}$/,
-  nicknameReg: /^[가-힣a-zA-Z0-9]{1,10}$/,
-  emailReg: /^[a-zA-Z0-9_-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
-};
-
-router.post("/login", (req, res) => {
+router.post("/login", [Id, Password, validate], async (req, res) => {
   const { id, password } = req.body;
   const result = {
     success: false,
     message: "",
     data: null,
   };
+  const client = new Client(psqlClient);
 
   try {
-    if (!regex.idReg.test(id)) {
-      throw { message: "invalid id input", status: 400 };
-    }
+    await client.connect();
+    const sql = "SELECT * FROM account.list WHERE id = $1 AND password = $2";
+    const values = [id, password];
+    const data = await client.query(sql, values);
 
-    if (!regex.passwordReg.test(password)) {
-      throw { message: "invalid password input", status: 400 };
-    }
+    if (data.rows.length == 0) {
+      result.success = false;
+      client.end();
 
-    // db로 로그인 정보 확인
-    mariaDB.query(
-      "SELECT * FROM account WHERE id = ? AND password = ?",
-      [id, password],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "login fail";
-          res.status(400).send(result);
-        } else if (rows.length === 1) {
-          req.session.accountIdx = rows[0].idx;
-          req.session.role = rows[0].role_idx;
+      res.status(400).send({
+        message: "login fail",
+      });
+    } else {
+      if (data.rows.length != 1) {
+        res.status(500).send({ message: "서버: 아이디 또는 비밀번호 오류" });
+      } else {
+        req.session.accountIdx = data.rows[0].idx;
+        req.session.role = data.rows[0].role_idx;
+        result.success = true;
+        result.message = "login success";
+        client.end();
 
-          result.message = "login success";
-          result.success = true;
-          res.status(200).send(result);
-        } else {
-          throw { message: "서버: 로그인 과정에 문제가 생김", status: 500 };
-        }
+        res.status(200).send(result);
       }
-    );
+    }
   } catch (err) {
-    res.status(err.status).send({ message: err.message });
+    if (client) {
+      client.end();
+    }
+    res.status(500).send({ message: err.message });
   }
 });
 
@@ -66,183 +67,80 @@ router.delete("/logout", (req, res) => {
   try {
     req.session.destroy(function (err) {
       if (err) {
-        res.status(500).send({ message: "서버: login failed" });
+        res.status(500).send({ message: "서버: logout failed" });
+        return;
       }
-      return;
-    });
-    result.message = "logout success";
-    result.success = true;
+      result.message = "logout success";
+      result.success = true;
 
-    res.status(200).send(result);
+      res.status(200).send(result);
+    });
   } catch (err) {
     res.status(err.status || 500).send({ message: err.message });
   }
 });
 
-router.get("/check-id", (req, res) => {
-  const { accountIdx } = req.session;
-  const { id } = req.body;
+router.get("/check-email", [Email, validate], checkEmail, (req, res) => {
   const result = {
     success: false,
     message: "",
     data: null,
   };
-
-  try {
-    if (!regex.idReg.test(id)) {
-      throw { message: "invalid id input", status: 400 };
-    }
-
-    mariaDB.query("SELECT * FROM account WHERE id = ?", [id], (err, rows) => {
-      if (err) {
-        result.message = err.sqlMessage;
-        res.status(500).send(result);
-      } else if (
-        rows.length === 0 ||
-        (rows.length === 1 && rows[0].idx == accountIdx)
-      ) {
-        result.message = "아이디 사용 가능";
-        result.success = true;
-        res.status(200).send(result);
-      } else {
-        result.message = "서버: 해당 아이디 중복. 사용불가";
-        res.status(409).send(result);
-      }
-    });
-  } catch (err) {
-    res.status(err.status).send({ message: err.message });
-  }
+  result.message = "이메일 사용 가능";
+  result.success = true;
+  res.status(200).send(result);
 });
 
-router.get("/check-email", (req, res) => {
-  const { accountIdx } = req.session;
-  const { email } = req.body;
+router.get("/check-id", [Id, validate], checkId, (req, res) => {
   const result = {
     success: false,
     message: "",
     data: null,
   };
-
-  try {
-    if (!regex.emailReg.test(email)) {
-      throw { message: "invalid email input", status: 400 };
-    }
-
-    mariaDB.query(
-      "SELECT * FROM account WHERE email = ?",
-      [email],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (
-          rows.length === 0 ||
-          (rows.length === 1 && rows[0].idx == accountIdx)
-        ) {
-          result.message = "이메일 사용 가능";
-          result.success = true;
-          res.status(200).send(result);
-        } else {
-          result.message = "서버: 해당 이메일 중복. 사용불가";
-          res.status(409).send(result);
-        }
-      }
-    );
-  } catch (err) {
-    res.status(err.status).send({ message: err.message });
-  }
+  result.message = "아이디 사용 가능";
+  result.success = true;
+  res.status(200).send(result);
 });
 
-router.post("/", async (req, res) => {
-  const { id, email, name, nickname, password, passwordCheck } = req.body;
-  const result = {
-    success: false,
-    message: "",
-    data: null,
-  };
+router.post(
+  "/",
+  [Id, Password, PasswordCheck, Email, Name, Nickname, validate],
+  checkId,
+  checkEmail,
+  async (req, res) => {
+    const { id, email, name, nickname, password, passwordCheck } = req.body;
+    const result = {
+      success: false,
+      message: "",
+      data: null,
+    };
+    const client = new Client(psqlClient);
 
-  try {
-    if (!regex.idReg.test(id)) {
-      throw { message: "invalid id input", status: 400 };
-    }
-
-    if (!regex.emailReg.test(email)) {
-      throw { message: "invalid email input", status: 400 };
-    }
-
-    if (!regex.nameReg.test(name)) {
-      throw { message: "invalid name input", status: 400 };
-    }
-
-    if (!regex.nicknameReg.test(nickname)) {
-      throw { message: "invalid nickname input", status: 400 };
-    }
-
-    if (!regex.passwordReg.test(password)) {
-      throw { message: "invalid password input", status: 400 };
-    }
-
-    if (!regex.passwordReg.test(passwordCheck)) {
-      throw { message: "invalid passwordCheck input", status: 400 };
-    }
-
-    if (password != passwordCheck) {
-      throw { message: "비밀번호가 일치하지 않습니다", status: 400 };
-    }
-
-    console.log("정규화까지 통과했음");
-
-    // 아이디 중복체크부터 시작.
-    mariaDB.query("SELECT * FROM account WHERE id = ?", [id], (err, rows) => {
-      if (err) {
-        result.message = err.sqlMessage;
-        res.status(500).send(result);
-      } else if (rows.length === 1) {
-        result.message = "서버: 해당 아이디 중복. 사용불가";
-        res.status(409).send(result);
-        // 아이디는 사용 가능. 이제 이메일 중복 체크
-      } else if (rows.length === 0) {
-        mariaDB.query(
-          "SELECT * FROM account WHERE email = ?",
-          [email],
-          (err, rows) => {
-            if (err) {
-              result.message = err.sqlMessage;
-              res.status(500).send(result);
-            } else if (rows.length === 1) {
-              result.message = "서버: 해당 이메일 중복. 사용불가";
-              res.status(409).send(result);
-            } else if (rows.length === 0) {
-              // 아이디와 이메일 모두 사용 가능. 테이블에 삽입.
-              mariaDB.query(
-                "INSERT INTO account (id, password, name, nickname, email, role_idx ) VALUES (?, ?, ?, ?, ?, 2)",
-                [id, password, name, nickname, email],
-                (err, rows) => {
-                  if (err) {
-                    console.log("문제가 생겼음");
-                    result.message = err.sqlMessage;
-                    res.status(500).send(result);
-                  } else {
-                    console.log("문제 없음");
-                    result.message = "signup success";
-                    result.success = true;
-                    res.status(200).send(result);
-                  }
-                }
-              );
-            }
-          }
-        );
+    try {
+      if (password != passwordCheck) {
+        throw { message: "비밀번호가 일치하지 않습니다", status: 400 };
       }
-    });
-  } catch (err) {
-    console.log("뭔가 에러:", err.status);
-    result.message = err.message;
-    res.status(err.status).send(result);
-  }
-});
 
-router.get("/find-id", (req, res) => {
+      await client.connect();
+      const sql =
+        "INSERT INTO account.list (id, password, name, nickname, email, role_idx) VALUES ($1, $2, $3, $4, $5, 2)";
+      const values = [id, password, name, nickname, email];
+      await client.query(sql, values);
+      await client.end();
+
+      result.message = "signup success";
+      result.success = true;
+      res.status(200).send(result);
+    } catch (err) {
+      if (client) {
+        client.end();
+      }
+      res.status(err.status || 500).send({ message: err.message });
+    }
+  }
+);
+
+router.get("/find-id", [Email, Name, validate], async (req, res) => {
   const { email, name } = req.body;
   const result = {
     success: false,
@@ -250,42 +148,33 @@ router.get("/find-id", (req, res) => {
     data: null,
   };
 
+  const client = new Client(psqlClient);
+
   try {
-    if (!regex.emailReg.test(email)) {
-      throw { message: "invalid email input", status: 400 };
-    }
+    await client.connect();
+    const sql = "SELECT * FROM account.list WHERE email = $1 AND name = $2";
+    const values = [email, name];
+    const data = await client.query(sql, values);
+    await client.end();
 
-    if (!regex.nameReg.test(name)) {
-      throw { message: "invalid name input", status: 400 };
+    if (data.rows.length == 0) {
+      result.message = "id가 존재하지 않음";
+      res.status(409).send(result); // 이것도 409가 낫다.
+    } else if (data.rows.length == 1) {
+      result.data = { id: data.rows[0].id };
+      result.success = true;
+      result.message = "find-id success";
+      res.status(200).send(result);
     }
-
-    // db로 아이디 정보 확인
-    mariaDB.query(
-      "SELECT * FROM account WHERE email = ? AND name = ?",
-      [email, name],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "id가 존재하지 않음";
-          res.status(400).send(result);
-        } else if (rows.length === 1) {
-          result.data = { id: rows[0].id };
-          result.success = true;
-          result.message = "find-id success";
-          res.status(200).send(result);
-        } else {
-          throw { message: "서버: db 문제가 생김", status: 500 };
-        }
-      }
-    );
   } catch (err) {
-    res.status(err.status).send({ message: err.message });
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 
-router.get("/find-password", (req, res) => {
+router.get("/find-password", [Email, Id, validate], async (req, res) => {
   const { email, id } = req.body;
   const result = {
     success: false,
@@ -293,41 +182,33 @@ router.get("/find-password", (req, res) => {
     data: null,
   };
 
+  const client = new Client(psqlClient);
+
   try {
-    if (!regex.emailReg.test(email)) {
-      throw { message: "invalid message input", status: 400 };
-    }
+    await client.connect();
+    const sql = "SELECT * FROM account.list WHERE email = $1 AND id = $2";
+    const values = [email, id];
+    const data = await client.query(sql, values);
+    await client.end();
 
-    if (!regex.idReg.test(id)) {
-      throw { message: "invalid id input", status: 400 };
+    if (data.rows.length == 0) {
+      result.message = "계정정보가 존재하지 않음";
+      res.status(409).send(result); // 이것도 409가 낫다.
+    } else if (data.rows.length == 1) {
+      result.data = { password: data.rows[0].password };
+      result.success = true;
+      result.message = "find-password success";
+      res.status(200).send(result);
     }
-
-    mariaDB.query(
-      "SELECT * FROM account WHERE email = ? AND id = ?",
-      [email, id],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "비밀번호가 존재하지 않음";
-          res.status(400).send(result);
-        } else if (rows.length === 1) {
-          result.data = { passowrd: rows[0].password };
-          result.success = true;
-          result.message = "find-password success";
-          res.status(200).send(result);
-        } else {
-          throw { message: "서버: db 문제가 생김", status: 500 };
-        }
-      }
-    );
   } catch (err) {
-    res.status(err.status).send({ message: err.message });
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 
-router.get("/:idx", checkIsLogged, (req, res) => {
+router.get("/", async (req, res) => {
   const { accountIdx } = req.session;
   const result = {
     success: false,
@@ -335,111 +216,79 @@ router.get("/:idx", checkIsLogged, (req, res) => {
     data: null,
   };
 
-  try {
-    // db 통신
-    mariaDB.query(
-      "SELECT * FROM account WHERE idx = ?",
-      [accountIdx],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "서버: 계정정보가 존재하지 않음";
-          res.status(404).send(result);
-        } else if (rows.length === 1) {
-          result.data = {
-            id: rows[0].id,
-            name: rows[0].name,
-            nickname: rows[0].nickname,
-            email: rows[0].email,
-            password: rows[0].passowrd,
-          };
+  const client = new Client(psqlClient);
 
-          result.success = true;
-          result.message = "get profile success";
-          res.status(200).send(result);
-        } else {
-          throw { message: "서버: db 문제가 생김", status: 500 };
-        }
-      }
-    );
+  try {
+    await client.connect();
+    const sql = "SELECT * FROM account.list WHERE idx = $1";
+    const values = [accountIdx];
+    const data = await client.query(sql, values);
+    await client.end();
+
+    if (data.rows.length == 0) {
+      result.message = "서버: 계정정보가 존재하지 않음";
+      res.status(404).send(result);
+    } else if (data.rows.length == 1) {
+      result.data = {
+        id: data.rows[0].id,
+        name: data.rows[0].name,
+        nickname: data.rows[0].nickname,
+        email: data.rows[0].email,
+        password: data.rows[0].passowrd,
+      };
+
+      result.success = true;
+      result.message = "get profile success";
+      res.status(200).send(result);
+    }
   } catch (err) {
-    res.status(err.status).send({ message: err.message });
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 
-router.put("/", checkIsLogged, (req, res) => {
-  const { accountIdx } = req.session;
-  const { name, nickname, email, password, passwordCheck } = req.body;
-  const result = {
-    success: false,
-    message: "",
-    data: null,
-  };
+router.put(
+  "/",
+  [Name, Nickname, Email, Password, PasswordCheck, validate],
+  checkIsLogged,
+  checkEmail,
+  async (req, res) => {
+    const { accountIdx } = req.session;
+    const { name, nickname, email, password, passwordCheck } = req.body;
+    const result = {
+      success: false,
+      message: "",
+      data: null,
+    };
+    const client = new Client(psqlClient);
 
-  try {
-    if (!regex.emailReg.test(email)) {
-      throw { message: "invalid email input", status: 400 };
-    }
-
-    if (!regex.nameReg.test(name)) {
-      throw { message: "invalid name input", status: 400 };
-    }
-
-    if (!regex.nicknameReg.test(nickname)) {
-      throw { message: "invalid nickname input", status: 400 };
-    }
-
-    if (!regex.passwordReg.test(password)) {
-      throw { message: "invalid password input", status: 400 };
-    }
-
-    if (!regex.passwordReg.test(passwordCheck)) {
-      throw { message: "invalid passwordCheck input", status: 400 };
-    }
-
-    if (password != passwordCheck) {
-      throw { message: "비밀번호가 일치하지 않습니다", status: 400 };
-    }
-
-    mariaDB.query(
-      "SELECT * FROM account WHERE email = ?",
-      [email],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 1 && rows[0].idx != accountIdx) {
-          result.message = "서버: 해당 이메일 중복. 사용불가";
-          res.status(409).send(result);
-        } else {
-          // 아이디와 이메일 모두 사용 가능. 테이블에 삽입.
-          mariaDB.query(
-            "UPDATE account SET email = ?, name = ?, nickname = ?, password = ? WHERE idx = ?",
-            [email, name, nickname, password, accountIdx],
-            (err, rows) => {
-              if (err) {
-                console.log("문제가 생겼음");
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else {
-                console.log("문제 없음");
-                result.message = "signup success";
-                result.success = true;
-                res.status(200).send(result);
-              }
-            }
-          );
-        }
+    try {
+      if (password != passwordCheck) {
+        throw { message: "server:비밀번호가 일치하지 않습니다", status: 400 };
       }
-    );
-  } catch (err) {
-    res.status(err.status).send({ message: err.message });
-  }
-});
 
-router.delete("/", checkIsLogged, (req, res) => {
+      await client.connect();
+      const sql =
+        "UPDATE account.list SET email = $1, name = $2, nickname = $3, password = $4 WHERE idx = $5";
+      const values = [email, name, nickname, password, accountIdx];
+      await client.query(sql, values);
+      await client.end();
+
+      result.message = "edit profile success";
+      result.success = true;
+      res.status(200).send(result);
+    } catch (err) {
+      if (client) {
+        client.end();
+      }
+      res.status(err.status || 500).send({ message: err.message });
+    }
+  }
+);
+
+router.delete("/", checkIsLogged, async (req, res) => {
   const { accountIdx } = req.session;
   const result = {
     success: false,
@@ -447,33 +296,27 @@ router.delete("/", checkIsLogged, (req, res) => {
     data: null,
   };
 
-  try {
-    // db통신 -> 회원 정보 삭제
-    mariaDB.query(
-      "DELETE FROM account WHERE idx = ?",
-      [accountIdx],
-      (err, updatedRows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (updatedRows.affectedRows === 0) {
-          result.message = "존재하지 않는 계정";
-          res.status(404).send(result);
-        } else if (updatedRows.affectedRows === 1) {
-          req.session.destroy(function (err) {
-            console.log("회원탈퇴 성공");
-          });
+  const client = new Client(psqlClient);
 
-          result.message = "delete success";
-          result.success = true;
-          res.status(200).send(result);
-        } else {
-          throw { message: "서버: db 문제가 생김", status: 500 };
-        }
-      }
-    );
+  try {
+    await client.connect();
+    const sql = "DELETE FROM account.list WHERE idx = $1";
+    const values = [accountIdx];
+    await client.query(sql, values);
+    await client.end();
+
+    req.session.destroy(function (err) {
+      console.log("회원탈퇴 성공");
+    });
+
+    result.message = "delete success";
+    result.success = true;
+    res.status(200).send(result);
   } catch (err) {
-    res.status(err.status).send({ message: err.message });
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 

@@ -25,11 +25,17 @@ app.use("/notice-posts", noticePostsRouter);
 const noticeCommentsRouter = require("./src/routes/notice-comments");
 app.use("/notice-comments", noticeCommentsRouter);
 
+const noticeLikeRouter = require("./src/routes/notice-like");
+app.use("/notice-like", noticeLikeRouter);
+
 const freePostsRouter = require("./src/routes/free-posts");
 app.use("/free-posts", freePostsRouter);
 
 const freeCommentsRouter = require("./src/routes/free-comments");
 app.use("/free-comments", freeCommentsRouter);
+
+const freeLikeRouter = require("./src/routes/free-like");
+app.use("/free-like", freeLikeRouter);
 
 app.listen(8000, () => {
   console.log("8000번 포트에서 웹 서버 실행");

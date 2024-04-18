@@ -1,197 +1,134 @@
 const router = require("express").Router();
-const mariaDB = require("../maria");
-const { checkIsLogged } = require("../checkAuthorization");
-
-const regex = {
-  commentContentReg: /^.{1,200}$/,
-};
+const { Client } = require("pg");
+const psqlClient = require("../database/postgreSQL");
+const { checkIsLogged } = require("../middleware/checkAuthorization");
+const { Comment_content, validate } = require("../middleware/validate");
 
 // 댓글 목록 불러오기 api
-router.get("/", (req, res) => {
-  const { notice } = req.body; // 불러와야 하는 공지글의 idx
+router.get("/", async (req, res) => {
+  const { notice_idx } = req.body; // 불러와야 하는 공지글의 idx
 
   const result = {
     success: false,
     message: "",
     data: null,
   };
+  const client = new Client(psqlClient);
 
   try {
-    if (!notice) {
-      throw { message: "게시글 idx 없음", status: 404 };
+    if (!notice_idx) {
+      throw { message: "게시글 idx 없음", status: 400 };
     }
 
-    mariaDB.query(
-      "SELECT * FROM notice_post WHERE idx = ?",
-      [notice],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "게시글 idx 없음";
-          res.status(404).send(result);
-        } else if (rows.length === 1) {
-          // db통신 -> 댓글 목록 불러오기
-          mariaDB.query(
-            "SELECT * FROM notice_comment WHERE post_idx = ?",
-            [notice],
-            (err, rows) => {
-              if (err) {
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else {
-                result.message = "get notice-comments success";
-                result.data = { commentsList: rows };
-                result.success = true;
-                res.status(200).send(result);
-              }
-            }
-          );
-        }
-      }
-    );
+    await client.connect();
+    const sql = `SELECT notice_board.comment.*, account.list.nickname
+    FROM notice_board.comment JOIN account.list ON
+    notice_board.comment.account_idx = account.list.idx
+    WHERE notice_board.comment.list_idx = $1;`;
+    const values = [notice_idx];
+    const data = await client.query(sql, values);
+    client.end();
+
+    result.data = data.rows;
+    result.success = true;
+    result.message = "get notice comment success";
+
+    res.status(200).send(result);
   } catch (err) {
-    result.message = err.message;
-    res.status(err.status || 500).send(result);
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 
-router.post("/", checkIsLogged, (req, res) => {
-  const { accountIdx } = req.session;
-  const { content, notice } = req.body;
+router.post(
+  "/",
+  [Comment_content, validate],
+  checkIsLogged,
+  async (req, res) => {
+    const { accountIdx } = req.session;
+    const { content, notice_idx } = req.body;
 
-  const result = {
-    success: false,
-    message: "",
-    data: null,
-  };
+    const result = {
+      success: false,
+      message: "",
+      data: null,
+    };
 
-  try {
-    if (!notice) {
-      throw { message: "게시글 idx 없음", status: 404 };
-    }
+    const client = new Client(psqlClient);
 
-    if (!regex.commentContentReg.test(content)) {
-      throw { message: "invalid content size", status: 400 };
-    }
-
-    mariaDB.query(
-      "SELECT * FROM notice_post WHERE idx = ?",
-      [notice],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "존재하지 않는 게시글";
-          res.status(404).send(result);
-        } else if (rows.length > 1) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 1) {
-          // 이제서야 댓글 작성하기
-          mariaDB.query(
-            "INSERT INTO notice_comment (content, post_idx, account_idx) VALUES (?, ?, ?)",
-            [content, notice, accountIdx],
-            (err, rows) => {
-              if (err) {
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else {
-                result.message = "create notice-comment success";
-                result.success = true;
-                res.status(200).send(result);
-              }
-            }
-          );
-        }
+    try {
+      if (!notice_idx) {
+        throw { message: "게시글 idx 없음", status: 400 };
       }
-    );
-  } catch (err) {
-    result.message = err.message;
-    res.status(err.status).send(result);
-  }
-});
 
-router.put("/:comment", (req, res) => {
-  const { comment } = req.params;
+      await client.connect();
+      const sql = `INSERT INTO notice_board.comment (content, list_idx, account_idx)
+      VALUES ($1, $2, $3) RETURNING idx;`;
+      const values = [content, notice_idx, accountIdx];
+      const data = await client.query(sql, values);
+      await client.end();
+
+      if (data.rows.length == 0) {
+        result.message = "server: insert comment failed";
+        res.status(500).send(result);
+      } else if (data.rows.length == 1) {
+        result.message = "server: insert comment success";
+        result.success = true;
+        res.status(200).send(result);
+      }
+    } catch (err) {
+      if (client) {
+        client.end();
+      }
+      res.status(err.status || 500).send({ message: err.message });
+    }
+  }
+);
+
+router.put("/:comment_idx", [Comment_content, validate], async (req, res) => {
+  const { comment_idx } = req.params;
   const { accountIdx } = req.session;
-  const { content, commentWriterIdx } = req.body;
+  const { content } = req.body;
 
   const result = {
     success: false,
     message: "",
     data: null,
   };
-
+  const client = new Client(psqlClient);
   try {
-    if (!comment) {
+    if (!comment_idx) {
       throw { message: "댓글 idx 없음", status: 404 };
     }
 
-    if (accountIdx != commentWriterIdx) {
-      throw { message: "not authorized:댓글 수정", status: 401 };
+    await client.connect();
+    const sql = `UPDATE notice_board.comment SET content = $1 WHERE
+    idx = $2 AND account_idx = $3 RETURNING idx`;
+    const values = [content, comment_idx, accountIdx];
+    const data = await client.query(sql, values);
+    await client.end();
+
+    if (data.rows.length == 0) {
+      result.message = "server: edit comment failed";
+      res.status(500).send(result);
+    } else if (data.rows.length == 1) {
+      result.message = "server: edit comment success";
+      result.success = true;
+      res.status(200).send(result);
     }
-
-    if (!regex.commentContentReg.test(content)) {
-      throw { message: "invalid content size", status: 400 };
-    }
-    // db통신 -> 댓글 수정하기
-    mariaDB.query(
-      "SELECT * FROM notice_comment WHERE idx = ?",
-      [comment],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "존재하지 않는 댓글";
-          res.status(404).send(result);
-        } else if (rows.length > 1) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-          // 이제 비로소 댓글 수정
-        } else if (rows.length === 1) {
-          console.log("여기 들어오긴 한다");
-          mariaDB.query(
-            "UPDATE notice_comment SET content = ? WHERE idx = ?",
-            [content, comment],
-            (err, updatedRows) => {
-              console.log(content);
-              if (err) {
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else if (updatedRows.affectedRows === 0) {
-                console.log(404, content);
-
-                result.message = "서버: 댓글 수정 실패";
-                res.status(404).send(result);
-              } else if (updatedRows.affectedRows === 1) {
-                console.log(200, content);
-
-                result.message = "댓글 수정 성공";
-                result.success = true;
-                res.status(200).send(result);
-              } else {
-                result.message = "서버: 댓글 수정 실패";
-                res.status(500).send(result);
-              }
-            }
-          );
-        }
-      }
-    );
   } catch (err) {
-    result.message = err.message;
-    res.status(err.status || 500).send(result);
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 
-router.delete("/:comment", (req, res) => {
-  const { comment } = req.params;
-  const { accountIdx, role } = req.session;
-  const { content, commentWriterIdx } = req.body;
+router.delete("/:comment_idx", async (req, res) => {
+  const { comment_idx } = req.params;
+  const { accountIdx } = req.session;
 
   const result = {
     success: false,
@@ -199,61 +136,32 @@ router.delete("/:comment", (req, res) => {
     data: null,
   };
 
+  const client = new Client(psqlClient);
+
   try {
-    if (!comment) {
+    if (!comment_idx) {
       throw { message: "댓글 idx 없음", status: 404 };
     }
 
-    if (accountIdx != commentWriterIdx) {
-      throw { message: "not authorized:댓글 삭제", status: 403 };
-    }
+    await client.connect();
+    const sql = `DELETE FROM notice_board.comment WHERE idx = $1 AND account_idx = $2 RETURNING idx;`;
+    const values = [comment_idx, accountIdx];
+    const data = await client.query(sql, values);
+    await client.end();
 
-    if (!regex.commentContentReg.test(content)) {
-      throw { message: "invalid content size", status: 400 };
+    if (data.rows.length == 0) {
+      result.message = "server: delete comment failed";
+      res.status(500).send(result);
+    } else if (data.rows.length == 1) {
+      result.message = "server: delete comment success";
+      result.success = true;
+      res.status(200).send(result);
     }
-
-    // db통신 -> 댓글 삭제하기
-    mariaDB.query(
-      "SELECT * FROM notice_comment WHERE idx = ?",
-      [comment],
-      (err, rows) => {
-        if (err) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-        } else if (rows.length === 0) {
-          result.message = "존재하지 않는 댓글";
-          res.status(404).send(result);
-        } else if (rows.length > 1) {
-          result.message = err.sqlMessage;
-          res.status(500).send(result);
-          // 이제 비로소 댓글 수정
-        } else if (rows.length === 1) {
-          mariaDB.query(
-            "DELETE FROM notice_comment  WHERE idx = ?",
-            [comment],
-            (err, updatedRows) => {
-              if (err) {
-                result.message = err.sqlMessage;
-                res.status(500).send(result);
-              } else if (updatedRows.affectedRows === 0) {
-                result.message = "서버: 댓글 삭제 실패";
-                res.status(404).send(result);
-              } else if (updatedRows.affectedRows === 1) {
-                result.message = "댓글 삭제 성공";
-                result.success = true;
-                res.status(200).send(result);
-              } else {
-                result.message = "서버: 댓글 삭제 실패";
-                res.status(500).send(result);
-              }
-            }
-          );
-        }
-      }
-    );
   } catch (err) {
-    result.message = err.message;
-    res.status(err.status || 500).send(result);
+    if (client) {
+      client.end();
+    }
+    res.status(err.status || 500).send({ message: err.message });
   }
 });
 
