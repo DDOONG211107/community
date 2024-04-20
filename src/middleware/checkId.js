@@ -1,5 +1,5 @@
-const { Client } = require("pg");
-const psqlClient = require("../database/postgreSQL");
+const { Pool } = require("pg");
+const { psqlPoolClient } = require("../database/postgreSQL");
 
 const checkId = async (req, res, next) => {
   const { accountIdx } = req.session;
@@ -9,14 +9,16 @@ const checkId = async (req, res, next) => {
     message: "",
     data: null,
   };
-  const client = new Client(psqlClient);
+  let client = null;
 
   try {
-    await client.connect();
+    const pool = await new Pool(psqlPoolClient);
+    client = await pool.connect();
+
     const sql = "SELECT * FROM account.list WHERE id = $1";
     const values = [id];
     const data = await client.query(sql, values);
-    await client.end();
+    client.release();
 
     if (data.rows.length == 1 && data.rows[0].idx != accountIdx) {
       result.message = "서버: 해당 아이디 중복. 사용불가";

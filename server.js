@@ -1,9 +1,8 @@
+require("dotenv").config();
+
 const express = require("express"); // express 패키지를 import
 const session = require("express-session");
 const app = express();
-
-const maria = require("./src/maria");
-maria.connect();
 
 app.use(
   session({
@@ -36,6 +35,11 @@ app.use("/free-comments", freeCommentsRouter);
 
 const freeLikeRouter = require("./src/routes/free-like");
 app.use("/free-like", freeLikeRouter);
+
+app.use((err, req, res, next) => {
+  console.log("여기");
+  res.status(err.status || 500).send({ message: err.message });
+});
 
 app.listen(8000, () => {
   console.log("8000번 포트에서 웹 서버 실행");

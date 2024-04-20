@@ -1,5 +1,5 @@
+// require("dotenv").config();
 const maria = require("mysql");
-require("dotenv").config();
 
 const connection = maria.createConnection({
   host: "127.0.0.1",

@@ -1,7 +1,7 @@
 const router = require("express").Router();
-const { Client } = require("pg");
-const psqlClient = require("../database/postgreSQL");
-const { checkIsLogged } = require("../middleware/checkAuthorization");
+const { Pool } = require("pg");
+const { psqlPoolClient } = require("../database/postgreSQL");
+const { checkIsLogged } = require("../middleware/checkIsLogged");
 const { Title, Post_content, validate } = require("../middleware/validate");
 
 // 게시글 목록 불러오기
@@ -11,21 +11,23 @@ router.get("/", async (req, res) => {
     message: "",
     data: null,
   };
-  const client = new Client(psqlClient); // 에러가 나기 쉬운 코드이므로 let으로 바꾸고 무조건 try 안에서 꼭 new Client()해주기
+  let client = null;
 
   try {
-    await client.connect();
+    const pool = await new Pool(psqlPoolClient);
+    client = await pool.connect();
+
     // sql은 이런식으로 구분해주기 (조건마다 엔터 끊어주기)
     const sql = ` 
         SELECT 
             free_board.list.idx, free_board.list.title, account.list.nickname, 
-            free_board.list.like_count, free_board.list.created_at 
+            free_board.list.like_count, free_board.list.created_at
         FROM account.list
         JOIN free_board.list ON account.list.idx = free_board.list.account_idx
         ORDER BY idx;
     `;
     const data = await client.query(sql);
-    await client.end();
+    client.release();
 
     result.data = data.rows;
     result.success = true;
@@ -34,14 +36,15 @@ router.get("/", async (req, res) => {
     res.status(200).send(result);
   } catch (err) {
     if (client) {
-      client.end();
+      client.release();
     }
-    res.status(500).send({ message: err.message });
+    next(err);
   }
 });
 
 // 게시글 불러오는 api
-router.get("/:free_idx", async (req, res) => {
+router.get("/:free_idx", async (req, res, next) => {
+  const { accountIdx } = req.session;
   const { free_idx } = req.params;
 
   const result = {
@@ -49,44 +52,43 @@ router.get("/:free_idx", async (req, res) => {
     message: "",
     data: null,
   };
-  const client = new Client(psqlClient);
+  let client = null;
 
   try {
     if (!free_idx) {
-      throw { message: "게시글 idx 없음", status: 400 };
+      next({ message: "게시글 idx 없음", status: 404 });
+      return;
     }
 
-    await client.connect();
-    const sql = `SELECT free_board.list.*, account.list.nickname
-    FROM account.list JOIN free_board.list
-    ON account.list.idx = free_board.list.account_idx
-    WHERE free_board.list.idx = $1;`;
-    const values = [free_idx];
+    const pool = await new Pool(psqlPoolClient);
+    client = await pool.connect();
+
+    const sql = `
+    SELECT free_board.list.*, account.list.nickname,
+    CASE
+        WHEN free_board.list.account_idx = $1
+        THEN true ELSE false END AS is_mine
+    FROM account.list 
+    JOIN free_board.list ON account.list.idx = free_board.list.account_idx
+    WHERE free_board.list.idx = $2;
+    `;
+    const values = [accountIdx, free_idx];
     const data = await client.query(sql, values);
-    await client.end();
+    await client.release();
 
     if (data.rows.length == 0) {
-      result.message = "서버: 존재하지 않는 게시글";
-      res.status(400).send(result); // 404가 맞다 (204를 쓸 수도 있다)
+      next({ status: 404, message: "서버: 존재하지 않는 게시글" }); // 404가 맞다 (204를 쓸 수도 있다)
     } else if (data.rows.length == 1) {
-      result.data = {
-        idx: data.rows[0].idx,
-        created_at: data.rows[0].created_at,
-        title: data.rows[0].title,
-        content: data.rows[0].content,
-        account_idx: data.rows[0].account_idx,
-        like_count: data.rows[0].like_count,
-        nickname: data.rows[0].nickname,
-      };
+      result.data = data.rows[0];
       result.success = true;
       result.message = "get free-item success";
       res.status(200).send(result);
     }
   } catch (err) {
     if (client) {
-      client.end();
+      client.release();
     }
-    res.status(err.status || 500).send({ message: err.message });
+    next(err);
   }
 });
 
@@ -95,7 +97,7 @@ router.post(
   "/",
   [Title, Post_content, validate],
   checkIsLogged,
-  async (req, res) => {
+  async (req, res, next) => {
     const { accountIdx } = req.session;
     const { title, content } = req.body;
 
@@ -104,71 +106,80 @@ router.post(
       message: "",
       data: null,
     };
-    const client = new Client(psqlClient);
+    let client = null;
 
     try {
-      await client.connect();
+      const pool = await new Pool(psqlPoolClient);
+      client = await pool.connect();
+
       const sql = `INSERT INTO free_board.list (title, content, account_idx)                          
      VALUES ($1, $2, $3);`;
       const values = [title, content, accountIdx];
       await client.query(sql, values);
-      client.end();
+      client.release();
 
       result.message = "서버: 자유게시판글 작성 성공";
       result.success = true;
       res.status(200).send(result);
     } catch (err) {
       if (client) {
-        client.end();
+        client.release();
       }
-      res.status(err.status || 500).send({ message: err.message });
+      next(err);
     }
   }
 );
 
 // 게시글 수정 api
-router.put("/:free_idx", [Title, Post_content, validate], async (req, res) => {
-  const { free_idx } = req.params;
-  const { accountIdx } = req.session;
-  const { title, content } = req.body;
+router.put(
+  "/:free_idx",
+  [Title, Post_content, validate],
+  async (req, res, next) => {
+    const { free_idx } = req.params;
+    const { accountIdx } = req.session;
+    const { title, content } = req.body;
 
-  const result = {
-    success: false,
-    message: "",
-    data: null,
-  };
-  const client = new Client(psqlClient);
+    const result = {
+      success: false,
+      message: "",
+      data: null,
+    };
+    let client = null;
 
-  try {
-    if (!free_idx) {
-      throw { message: "존재하지 않는 게시글", status: 404 };
-    }
+    try {
+      if (!free_idx) {
+        next({ message: "존재하지 않는 게시글", status: 404 });
+        return;
+      }
 
-    await client.connect();
-    const sql = `UPDATE free_board.list SET title = $1, content = $2 
+      const pool = await new Pool(psqlPoolClient);
+      client = await pool.connect();
+
+      const sql = `UPDATE free_board.list SET title = $1, content = $2 
       WHERE idx = $3 AND account_idx = $4 RETURNING idx`;
-    const values = [title, content, free_idx, accountIdx];
-    const data = await client.query(sql, values);
-    await client.end();
+      const values = [title, content, free_idx, accountIdx];
+      const data = await client.query(sql, values);
+      await client.release();
 
-    if (data.rows.length == 0) {
-      result.message = "server: edit free post failed";
-      res.status(500).send(result); // 이것도 500보다 더 적합한 코드가 있다 (500은 api가 아예 돌아가지 않았다는 뜻, 이 if문은 통신은 성공했다는 뜻이므로 약간 다르다)(404를 쓸수도 있다)
-    } else if (data.rows.length == 1) {
-      result.message = "server: edit free post success";
-      result.success = true;
-      res.status(200).send(result);
+      if (data.rows.length == 0) {
+        next({ message: "server: edit free post failed", status: 404 });
+        // 이것도 500보다 더 적합한 코드가 있다 (500은 api가 아예 돌아가지 않았다는 뜻, 이 if문은 통신은 성공했다는 뜻이므로 약간 다르다)(404를 쓸수도 있다)
+      } else if (data.rows.length == 1) {
+        result.message = "server: edit free post success";
+        result.success = true;
+        res.status(200).send(result);
+      }
+    } catch (err) {
+      if (client) {
+        client.release();
+      }
+      next(err);
     }
-  } catch (err) {
-    if (client) {
-      client.end();
-    }
-    res.status(err.status || 500).send({ message: err.message });
   }
-});
+);
 
 // 게시글 삭제 api
-router.delete("/:free_idx", async (req, res) => {
+router.delete("/:free_idx", async (req, res, next) => {
   const { free_idx } = req.params;
   const { accountIdx } = req.session;
 
@@ -177,23 +188,24 @@ router.delete("/:free_idx", async (req, res) => {
     message: "",
     data: null,
   };
-  const client = new Client(psqlClient);
+  let client = null;
 
   try {
     if (!free_idx) {
-      throw { message: "존재하지 않는 게시글", status: 404 };
+      next({ message: "존재하지 않는 게시글", status: 404 });
     }
 
-    await client.connect();
+    const pool = await new Pool(psqlPoolClient);
+    client = await pool.connect();
+
     const sql =
       "DELETE FROM free_board.list WHERE idx = $1 AND account_idx = $2 RETURNING idx";
     const values = [free_idx, accountIdx];
     const data = await client.query(sql, values);
-    await client.end();
+    await client.release();
 
     if (data.rows.length == 0) {
-      result.message = "server: delete free post failed";
-      res.status(500).send(result);
+      next({ message: "server:delete free post failed", status: 404 });
     } else if (data.rows.length == 1) {
       result.message = "server: delete free post success";
       result.success = true;
@@ -201,9 +213,9 @@ router.delete("/:free_idx", async (req, res) => {
     }
   } catch (err) {
     if (client) {
-      client.end();
+      client.release();
     }
-    res.status(err.status || 500).send({ message: err.message });
+    next(err);
   }
 });
 
