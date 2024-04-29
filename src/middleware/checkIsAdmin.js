@@ -8,8 +8,20 @@ const checkIsAdmin = (req, res, next) => {
   };
 
   if (role != 1) {
-    result.message = "서버: 공지글 작성 권한 없음";
-    res.status(403).send(result);
+    const log = {
+      accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
+      name: "middleware/checkIsAdmin",
+      rest: undefined,
+      createdAt: new Date(),
+      reqParams: req.params,
+      reqBody: req.body,
+      result: result,
+      code: 403,
+    };
+    result.message = "서버: 관리자 권한 없음";
+    res.log = log;
+
+    return res.status(403).send(result);
   } else {
     next();
   }

@@ -2,7 +2,7 @@
 const { validationResult, body: validateBody } = require("express-validator");
 
 const regex = {
-  idReg: /^[a-zA-Z0-9]{1,20}$/,
+  idReg: /^[a-zA-Z0-9]{0,20}$/,
   passwordReg: /^[a-zA-Z0-9]{1,20}$/,
   nameReg: /^[가-힣a-zA-Z]{1,10}$/,
   nicknameReg: /^[가-힣a-zA-Z0-9]{1,10}$/,
@@ -10,13 +10,34 @@ const regex = {
   titleReg: /^.{1,20}$/,
   postContentReg: /^.{1,500}$/,
   commentContentReg: /^.{1,200}$/,
+  dateReg: /^(|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})$/,
+  successReg: /^[a-zA_Z]{4,5}$/,
   warningString: "서버: invalid input",
 };
 
 const validate = (req, res, next) => {
   const err = validationResult(req);
   if (!err.isEmpty()) {
-    res.status(400).send({ message: regex.warningString });
+    const result = {
+      success: false,
+      message: "",
+      data: null,
+    };
+    const log = {
+      accountIdx: req.session.accountIdx ? req.session.accountIdx : undefined,
+      name: "middleware/validate",
+      rest: undefined,
+      createdAt: new Date(),
+      reqParams: req.params,
+      reqBody: req.body,
+      result: result,
+      code: 400,
+    };
+
+    result.message = regex.warningString;
+    res.log = log;
+
+    return res.status(400).send(result);
   } else {
     next();
   }
@@ -34,7 +55,9 @@ const Post_content = validateBody("content").matches(regex.postContentReg);
 const Comment_content = validateBody("content").matches(
   regex.commentContentReg
 );
-
+const StartDate = validateBody("startDateString").matches(regex.dateReg);
+const EndDate = validateBody("endDateString").matches(regex.dateReg);
+const Success = validateBody("success").matches(regex.successReg);
 module.exports = {
   validate,
   Title,
@@ -46,4 +69,7 @@ module.exports = {
   Name,
   Nickname,
   Email,
+  StartDate,
+  EndDate,
+  Success,
 };

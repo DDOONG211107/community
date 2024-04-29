@@ -9,6 +9,7 @@ const checkId = async (req, res, next) => {
     message: "",
     data: null,
   };
+
   let client = null;
 
   try {
@@ -21,8 +22,20 @@ const checkId = async (req, res, next) => {
     client.release();
 
     if (data.rows.length == 1 && data.rows[0].idx != accountIdx) {
-      result.message = "서버: 해당 아이디 중복. 사용불가";
-      res.status(409).send(result);
+      const log = {
+        accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
+        name: "middleware/checkId",
+        rest: undefined,
+        createdAt: new Date(),
+        reqParams: req.params,
+        reqBody: req.body,
+        result: result,
+        code: 409,
+      };
+      result.message = "서버: 해당 id 중복. 사용불가";
+      res.log = log;
+
+      return res.status(409).send(result);
     } else if (
       data.rows.length == 0 ||
       (data.rows.length == 1 && data.rows[0].idx == accountIdx)
@@ -31,9 +44,17 @@ const checkId = async (req, res, next) => {
     }
   } catch (err) {
     if (client) {
-      client.end();
+      client.release();
     }
-    res.status(err.status || 500).send({ message: err.message });
+
+    result.message = err.message ? err.message : "알 수 없는 서버 에러";
+    next({
+      name: "middleware/checkEmail",
+      rest: undefined,
+      code: err.code,
+      message: err.message,
+      result: result,
+    });
   }
 };
 
