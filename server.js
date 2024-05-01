@@ -1,3 +1,8 @@
+// 04.29
+// data와 데이터 처리는 항상 같이 만들어줘야 한다
+// 로그 모듈에 사용할 데이터를 라우터 안에서 만들지 말기
+// 200번 코드 말고는 전부 에러핸들러로 넘기기 (에러핸들러로 넘길때 상태코드도 같이 넘겨주고)
+
 require("dotenv").config();
 
 const express = require("express"); // express 패키지를 import
@@ -52,17 +57,18 @@ app.use("/admin", adminRouter);
 
 app.use((err, req, res, next) => {
   console.log("에러 미들웨어 진입");
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: `err-handler/${err.name ? err.name : ""}`,
-    rest: err.rest ? err.rest : undefined,
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: err.result,
-    code: err.code || 500,
-  };
-  res.log = log;
+  req.isError = true;
+  //   const log = {
+  //     //accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
+  //     //name: `err-handler/${err.name ? err.name : ""}`,
+  //     //rest: err.rest ? err.rest : undefined,
+  //     //createdAt: new Date(),
+  //     //reqParams: req.params,
+  //     //reqBody: req.body,
+  //     result: err.result,
+  //     // code: err.code || 500,
+  //   };
+  //   res.log = log;
 
   res
     .status(
@@ -70,7 +76,7 @@ app.use((err, req, res, next) => {
         ? parseInt(err.code)
         : 500
     )
-    .send(err.result);
+    .send(req.result);
 });
 
 app.listen(8000, () => {

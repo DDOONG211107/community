@@ -14,27 +14,13 @@ router.get("/", async (req, res, next) => {
     message: "",
     data: null,
   };
-
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "notice_comments/",
-    rest: "get",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
-
+  req.result = result;
   let client = null;
 
   try {
     if (!notice_idx) {
       result.message = "게시글정보 없음";
-      log.code = 404;
-      res.log = log;
-
-      res.status(log.code).send(result);
+      next({ code: 404 });
     }
 
     const pool = await new Pool(psqlPoolClient);
@@ -54,20 +40,12 @@ router.get("/", async (req, res, next) => {
     result.data = data.rows;
     result.success = true;
     result.message = "get notice comment success";
+    req.code = 200;
 
-    log.code = 200;
-    res.log = log;
-
-    res.status(log.code).send(result);
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "notice-comments/",
-      rest: "get",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();
@@ -88,27 +66,13 @@ router.post(
       message: "",
       data: null,
     };
-
-    const log = {
-      accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-      name: "notice_comments/",
-      rest: "post",
-      createdAt: new Date(),
-      reqParams: req.params,
-      reqBody: req.body,
-      result: result,
-      code: 500,
-    };
-
+    req.result = result;
     let client = null;
 
     try {
       if (!notice_idx) {
         result.message = "게시글정보 없음";
-        log.code = 404;
-        res.log = log;
-
-        return res.status(404).send(result);
+        next({ code: 404 });
       }
 
       const pool = await new Pool(psqlPoolClient);
@@ -123,30 +87,21 @@ router.post(
 
       if (data.rows.length == 0) {
         result.message = "server: insert comment failed";
-        log.code = 500;
+        req.code = 500;
       } else if (data.rows.length == 1) {
         result.message = "server: insert comment success";
         result.success = true;
-        log.code = 200;
+        req.code = 200;
       }
-      res.log = log;
-      res.status(log.code).send(result);
+
+      res.status(req.code).send(result);
     } catch (err) {
       if (err.code == 23503) {
         result.message = "존재하지 않는 게시글에 댓글 작성 시도";
-        log.code = 400;
-        res.log = log;
-
-        res.status(log.code).send(result);
+        next({ code: 400 });
       } else {
         result.message = err.message ? err.message : "알 수 없는 서버 에러";
-        next({
-          name: "notice-comments/",
-          rest: "post",
-          code: err.code,
-          message: err.message,
-          result: result,
-        });
+        next();
       }
     } finally {
       if (client) {
@@ -170,24 +125,12 @@ router.put(
       data: null,
     };
 
-    const log = {
-      accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-      name: "notice_comments/:comment_idx",
-      rest: "put",
-      createdAt: new Date(),
-      reqParams: req.params,
-      reqBody: req.body,
-      result: result,
-      code: 500,
-    };
+    req.result = result;
     let client = null;
     try {
       if (!comment_idx) {
         result.message = "댓글 idx 없음";
-        log.code = 404;
-        res.log = log;
-
-        return res.status(404).send(result);
+        next({ code: 404 });
       }
 
       const pool = await new Pool(psqlPoolClient);
@@ -202,24 +145,16 @@ router.put(
 
       if (data.rows.length == 0) {
         result.message = "server: edit comment failed";
-        log.code = 500;
+        next({ code: 500 });
       } else if (data.rows.length == 1) {
         result.message = "server: edit comment success";
         result.success = true;
-        log.code = 200;
+        req.code = 200;
+        res.status(req.code).send(result);
       }
-
-      res.log = log;
-      res.status(log.code).send(result);
     } catch (err) {
       result.message = err.message ? err.message : "알 수 없는 서버 에러";
-      next({
-        name: "notice_comments/:comment_idx",
-        rest: "put",
-        code: err.code,
-        message: err.message,
-        result: result,
-      });
+      next(err);
     } finally {
       if (client) {
         client.release();
@@ -237,26 +172,13 @@ router.delete("/:comment_idx", async (req, res, next) => {
     message: "",
     data: null,
   };
-
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "notice_comments/:comment_idx",
-    rest: "delete",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: {},
-    code: 500,
-  };
+  req.result = result;
   let client = null;
 
   try {
     if (!comment_idx) {
       result.message = "댓글 idx 없음";
-      log.code = 404;
-      res.log = log;
-
-      return res.status(404).send(result);
+      next({ code: 404 });
     }
 
     const pool = await new Pool(psqlPoolClient);
@@ -271,24 +193,16 @@ router.delete("/:comment_idx", async (req, res, next) => {
 
     if (data.rows.length == 0) {
       result.message = "server: delete comment failed";
-      log.status = 500;
+      next({ code: 500 });
     } else if (data.rows.length == 1) {
       result.message = "server: delete comment success";
       result.success = true;
-      log.status = 200;
+      req.code = 500;
+      res.status(req.code).send(result);
     }
-
-    res.log = log;
-    res.status(log.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "notice_comments/:comment_idx",
-      rest: "put",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();

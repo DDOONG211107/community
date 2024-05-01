@@ -9,7 +9,7 @@ const checkEmail = async (req, res, next) => {
     message: "",
     data: null,
   };
-
+  req.result = result;
   let client = null;
 
   try {
@@ -22,20 +22,9 @@ const checkEmail = async (req, res, next) => {
     client.release();
 
     if (data.rows.length == 1 && data.rows[0].idx != accountIdx) {
-      const log = {
-        accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-        name: "middleware/checkEmail",
-        rest: undefined,
-        createdAt: new Date(),
-        reqParams: req.params,
-        reqBody: req.body,
-        result: result,
-        code: 409,
-      };
       result.message = "서버: 해당 이메일 중복. 사용불가";
-      res.log = log;
-
-      return res.status(409).send(result);
+      req.code = 409;
+      next({ code: 409 });
     } else if (
       data.rows.length == 0 ||
       (data.rows.length == 1 && data.rows[0].idx == accountIdx)
@@ -46,15 +35,8 @@ const checkEmail = async (req, res, next) => {
     if (client) {
       client.release();
     }
-
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "middleware/checkEmail",
-      rest: undefined,
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   }
 };
 

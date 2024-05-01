@@ -11,6 +11,11 @@ const getIdx = async (req, res, next) => {
 
   let client = null;
 
+  // id를 입력하지 않으면 검색하지 않고 바로 next()
+  if (id.length == 0) {
+    return next();
+  }
+
   try {
     const pool = await new Pool(psqlPoolClient);
     client = await pool.connect();
@@ -23,14 +28,27 @@ const getIdx = async (req, res, next) => {
     // 존재하지 않는 id를 입력했다는 뜻
     if (data.rows.length == 0) {
       req.search_accountIdx = -1;
+      result.message = "존재하지 않는 id 검색";
+
+      const log = {
+        accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
+        name: "middleware/getIdx",
+        rest: "post",
+        createdAt: new Date(),
+        reqParams: req.params,
+        reqBody: req.body,
+        result: result,
+        code: 404,
+      };
+      res.log = log;
+
+      return res.status(404).send(result);
 
       // 존재하는 id를 입력했다는 뜻
     } else if (data.rows.length == 1) {
       req.search_accountIdx = data.rows[0].idx;
-      console.log(req.search_accountIdx);
+      next();
     }
-
-    next();
   } catch (err) {
     if (client) {
       client.release();

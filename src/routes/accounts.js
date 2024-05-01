@@ -22,19 +22,9 @@ router.post("/login", [Id, Password, validate], async (req, res, next) => {
     message: "",
     data: null,
   };
-
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "accounts/login",
-    rest: "post",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
-
+  req.result = result;
   let client = null;
+
   try {
     const pool = await new Pool(psqlPoolClient);
     client = await pool.connect();
@@ -45,26 +35,21 @@ router.post("/login", [Id, Password, validate], async (req, res, next) => {
 
     if (data.rows.length == 0) {
       result.message = "서버: 아이디 또는 비밀번호 오류";
-      log.code = 204;
+      req.code = 204;
     } else if (data.rows.length == 1) {
       req.session.accountIdx = data.rows[0].idx;
       req.session.role = data.rows[0].role_idx;
+      req.session.accountId = data.rows[0].id;
 
       result.success = true;
       result.message = "login success";
-      log.code = 200;
+      req.code = 200;
     }
-    res.log = log;
-    res.status(log.code).send(result);
+
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "accounts/login",
-      rest: "post",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();
@@ -79,37 +64,19 @@ router.delete("/logout", (req, res, next) => {
     message: "",
     data: null,
   };
-
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "accounts/logout",
-    rest: "delete",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
+  req.result = result;
 
   try {
     req.session.destroy(function (err) {
       if (err) {
         result.message = err.message ? err.message : "알 수 없는 서버 에러";
-        return next({
-          name: "accounts/logout",
-          rest: "delete",
-          code: err.code,
-          message: err.message,
-          result: result,
-        });
+        return next(err);
       }
     });
     result.message = "logout success";
     result.success = true;
-
-    log.code = 200;
-    res.log = log;
-    res.status(log.code).send(result);
+    req.code = 200;
+    res.status(req.code).send(result);
   } catch (err) {
     next(err);
   }
@@ -121,34 +88,16 @@ router.get("/check-email", [Email, validate], checkEmail, (req, res, next) => {
     message: "",
     data: null,
   };
+  req.result = result;
 
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "accounts/check-email",
-    rest: "get",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
   try {
     result.message = "이메일 사용 가능";
     result.success = true;
-
-    log.code = 200;
-    res.log = log;
-
-    res.status(log.code).send(result);
+    req.code = 200;
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "accounts/check-email",
-      rest: "get",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   }
 });
 
@@ -158,33 +107,15 @@ router.get("/check-id", [Id, validate], checkId, (req, res, next) => {
     message: "",
     data: null,
   };
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "accounts/check-id",
-    rest: "get",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
+  req.result = result;
   try {
     result.message = "아이디 사용 가능";
     result.success = true;
-
-    log.code = 200;
-    res.log = log;
-
-    res.status(log.code).send(result);
+    req.code = 200;
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "accounts/check-id",
-      rest: "get",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   }
 });
 
@@ -200,22 +131,13 @@ router.post(
       message: "",
       data: null,
     };
-    const log = {
-      accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-      name: "accounts/",
-      rest: "post",
-      createdAt: new Date(),
-      reqParams: req.params,
-      reqBody: req.body,
-      result: result,
-      code: 500,
-    };
+    req.result = result;
     let client = null;
 
     try {
       if (password != passwordCheck) {
         result.message = "비밀번호가 일치하지 않습니다";
-        log.code = 400;
+        next({ code: 400 });
       } else {
         const pool = await new Pool(psqlPoolClient);
         client = await pool.connect();
@@ -225,22 +147,15 @@ router.post(
             VALUES ($1, $2, $3, $4, $5, 2)`;
         const values = [id, password, name, nickname, email];
         await client.query(sql, values);
-
         result.message = "signup success";
         result.success = true;
-        log.code = 200;
+
+        req.code = 200;
+        res.status(req.code).send(result);
       }
-      res.log = log;
-      res.status(log.code).send(result);
     } catch (err) {
       result.message = err.message ? err.message : "알 수 없는 서버 에러";
-      next({
-        name: "accounts/",
-        rest: "post",
-        code: err.code,
-        message: err.message,
-        result: result,
-      });
+      next(err);
     } finally {
       if (client) {
         client.release();
@@ -256,47 +171,30 @@ router.get("/find-id", [Email, Name, validate], async (req, res, next) => {
     message: "",
     data: null,
   };
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "accounts/fine-id",
-    rest: "get",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
-
+  req.result = result;
   let client = null;
 
   try {
     const pool = await new Pool(psqlPoolClient);
     client = await pool.connect();
 
-    const sql = "SELECT * FROM account.list WHERE email = $1 AND name = $2";
+    const sql = "SELECT * FROM account.list WHER email = $1 AND name = $2";
     const values = [email, name];
     const data = await client.query(sql, values);
 
     if (data.rows.length == 0) {
       result.message = "id가 존재하지 않음";
-      log.code = 204;
+      req.code = 204;
     } else if (data.rows.length == 1) {
       result.data = { id: data.rows[0].id };
       result.success = true;
       result.message = "find-id success";
-      log.code = 200;
+      req.code = 200;
     }
-    res.log = log;
-    res.status(log.code).send(result);
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "accounts/find-id",
-      rest: "get",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();
@@ -311,17 +209,7 @@ router.get("/find-password", [Email, Id, validate], async (req, res, next) => {
     message: "",
     data: null,
   };
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "accounts/find-password",
-    rest: "get",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
-
+  req.result = result;
   let client = null;
 
   try {
@@ -334,24 +222,17 @@ router.get("/find-password", [Email, Id, validate], async (req, res, next) => {
 
     if (data.rows.length == 0) {
       result.message = "비밀번호가 존재하지 않음";
-      log.code = 204;
+      req.code = 204;
     } else if (data.rows.length == 1) {
       result.data = { password: data.rows[0].password };
       result.success = true;
       result.message = "find-password success";
-      log.code = 200;
+      req.code = 200;
     }
-    res.log = log;
-    res.status(log.code).send(result);
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "accounts/find-password",
-      rest: "get",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();
@@ -366,16 +247,7 @@ router.get("/", checkIsLogged, async (req, res, next) => {
     message: "",
     data: null,
   };
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "accounts/",
-    rest: "get",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
+  req.result = result;
   let client = null;
 
   try {
@@ -388,24 +260,17 @@ router.get("/", checkIsLogged, async (req, res, next) => {
 
     if (data.rows.length == 0) {
       result.message = "계정정보가 존재하지 않음";
-      log.code = 204;
+      req.code = 204;
     } else if (data.rows.length == 1) {
       result.data = data.rows;
       result.success = true;
       result.message = "get profile success";
-      log.code = 200;
+      req.code = 200;
     }
-    res.log = log;
-    res.status(log.code).send(result);
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "accounts/",
-      rest: "get",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();
@@ -426,22 +291,13 @@ router.put(
       message: "",
       data: null,
     };
-    const log = {
-      accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-      name: "accounts/",
-      rest: "put",
-      createdAt: new Date(),
-      reqParams: req.params,
-      reqBody: req.body,
-      result: result,
-      code: 500,
-    };
+    req.result = result;
     let client = null;
 
     try {
       if (password != passwordCheck) {
         result.message = "비밀번호가 일치하지 않습니다";
-        log.code = 400;
+        next({ code: 400 });
       } else {
         const pool = await new Pool(psqlPoolClient);
         client = await pool.connect();
@@ -453,19 +309,12 @@ router.put(
 
         result.message = "edit profile success";
         result.success = true;
-        log.code = 200;
+        req.code = 200;
+        res.status(req.code).send(result);
       }
-      res.log = log;
-      res.status(log.code).send(result);
     } catch (err) {
       result.message = err.message ? err.message : "알 수 없는 서버 에러";
-      next({
-        name: "accounts/",
-        rest: "put",
-        code: err.code,
-        message: err.message,
-        result: result,
-      });
+      next(err);
     } finally {
       if (client) {
         client.release();
@@ -481,17 +330,7 @@ router.delete("/", checkIsLogged, async (req, res, next) => {
     message: "",
     data: null,
   };
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "accounts/",
-    rest: "delete",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
-
+  req.result = result;
   let client = null;
 
   try {
@@ -508,19 +347,11 @@ router.delete("/", checkIsLogged, async (req, res, next) => {
 
     result.message = "delete success";
     result.success = true;
-
-    log.code = 200;
-    res.log = log;
-    res.status(log.code).send(result);
+    req.code = 200;
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "accounts/",
-      rest: "delete",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(req);
   } finally {
     if (client) {
       client.release();

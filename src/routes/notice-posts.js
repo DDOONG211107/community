@@ -11,16 +11,7 @@ router.get("/", async (req, res, next) => {
     message: "",
     data: null,
   };
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "notice-posts/",
-    rest: "get",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
+  req.result = result;
   let client = null;
 
   try {
@@ -42,18 +33,11 @@ router.get("/", async (req, res, next) => {
     result.success = true;
     result.message = "get notice lists success";
 
-    log.code = 200;
-    res.log = log;
-    res.status(log.code).send(result);
+    req.code = 200;
+    res.status(req.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "notice-posts/",
-      rest: "get",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();
@@ -70,17 +54,7 @@ router.get("/:notice_idx", async (req, res, next) => {
     message: "",
     data: null,
   };
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "notice-posts/:notice_idx",
-    rest: "get",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
-
+  req.result = result;
   let client = null;
 
   try {
@@ -89,10 +63,7 @@ router.get("/:notice_idx", async (req, res, next) => {
 
     if (!notice_idx) {
       result.message = "게시글 idx 없음";
-      log.code = 404;
-      res.log = log;
-
-      return res.status(404).send(result);
+      next({ code: 404 });
     }
 
     const sql = `
@@ -108,24 +79,17 @@ router.get("/:notice_idx", async (req, res, next) => {
 
     if (data.rows.length == 0) {
       result.message = "존재하지 않는 게시글";
-      log.code = 404;
+      next({ code: 404 });
     } else if (data.rows.length == 1) {
       result.data = data.rows;
       result.success = true;
       result.message = "get notice-item success";
-      log.code = 200;
+      req.code = 200;
+      res.status(req.code).send(result);
     }
-    res.log = log;
-    res.status(log.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "notice-posts/:notice_idx",
-      rest: "get",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();
@@ -147,17 +111,7 @@ router.post(
       message: "",
       data: null,
     };
-    const log = {
-      accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-      name: "notice-posts/",
-      rest: "post",
-      createdAt: new Date(),
-      reqParams: req.params,
-      reqBody: req.body,
-      result: result,
-      code: 500,
-    };
-
+    req.result = result;
     let client = null;
 
     try {
@@ -173,20 +127,11 @@ router.post(
 
       result.message = "서버: 공지글 작성 성공";
       result.success = true;
-
-      log.code = 200;
-      res.log = log;
-
-      res.status(log.code).send(result);
+      req.code = 200;
+      res.status(req.code).send(result);
     } catch (err) {
       result.message = err.message ? err.message : "알 수 없는 서버 에러";
-      next({
-        name: "notice-posts/",
-        rest: "post",
-        code: err.code,
-        message: err.message,
-        result: result,
-      });
+      next(err);
     } finally {
       if (client) {
         client.release();
@@ -210,26 +155,13 @@ router.put(
       message: "",
       data: null,
     };
-    const log = {
-      accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-      name: "notice-posts/:notice_idx",
-      rest: "put",
-      createdAt: new Date(),
-      reqParams: req.params,
-      reqBody: req.body,
-      result: result,
-      code: 500,
-    };
-
+    req.result = result;
     let client = null;
 
     try {
       if (!notice_idx) {
         result.message = "게시글 idx 없음";
-        log.code = 404;
-        res.log = log;
-
-        return res.status(404).send(result);
+        next({ code: 404 });
       }
 
       const pool = await new Pool(psqlPoolClient);
@@ -244,24 +176,16 @@ router.put(
 
       if (data.rows.length == 0) {
         result.message = "server:edit notice post failed";
-        log.code = 500;
+        next({ code: 500 });
       } else if (data.rows.length == 1) {
         result.message = "server: edit notice post success";
         result.success = true;
-        log.code = 200;
+        req.code = 200;
+        res.status(req.code).send(result);
       }
-
-      res.log = log;
-      res.status(log.code).send(result);
     } catch (err) {
       result.message = err.message ? err.message : "알 수 없는 서버 에러";
-      next({
-        name: "notice-posts/:notice_idx",
-        rest: "post",
-        code: err.code,
-        message: err.message,
-        result: result,
-      });
+      next(err);
     } finally {
       if (client) {
         client.release();
@@ -280,26 +204,13 @@ router.delete("/:notice_idx", checkIsAdmin, async (req, res, next) => {
     message: "",
     data: null,
   };
-  const log = {
-    accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-    name: "notice-posts/:notice_idx",
-    rest: "delete",
-    createdAt: new Date(),
-    reqParams: req.params,
-    reqBody: req.body,
-    result: result,
-    code: 500,
-  };
-
+  req.result = result;
   let client = null;
 
   try {
     if (!notice_idx) {
       result.message = "게시글 idx 없음";
-      log.code = 404;
-      res.log = log;
-
-      return res.status(404).send(result);
+      next({ code: 404 });
     }
 
     const pool = await new Pool(psqlPoolClient);
@@ -313,24 +224,16 @@ router.delete("/:notice_idx", checkIsAdmin, async (req, res, next) => {
 
     if (data.rows.length == 0) {
       result.message = "server:delete notice post failed";
-      log.code = 500;
+      next({ code: 500 });
     } else if (data.rows.length == 1) {
       result.message = "server: delete notice post success";
       result.success = true;
-      log.code = 200;
+      req.code = 200;
+      res.status(req.code).send(result);
     }
-
-    res.log = log;
-    res.status(log.code).send(result);
   } catch (err) {
     result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next({
-      name: "notice-posts/:notice_idx",
-      rest: "delete",
-      code: err.code,
-      message: err.message,
-      result: result,
-    });
+    next(err);
   } finally {
     if (client) {
       client.release();
