@@ -8,6 +8,7 @@ require("dotenv").config();
 const express = require("express"); // express 패키지를 import
 const session = require("express-session");
 const app = express();
+const result = require("./src/module/result");
 
 app.use(
   session({
@@ -29,6 +30,9 @@ app.use(logger);
 // 1. 기존 api에서 통신 성공일 때 next 해주고 있는거 원래대로 돌려야 됨 ( 이게 올바른 방향 )
 // 2. 모든 미들웨어, 라우터에서 발생하는 에러를 한 번에 처리해주려고 하는게 error handler middleware 임.
 // ( 그냥 next와 return next의 차이를 좀 찾아볼 것 )
+
+// const makeReqResultRouter = require("./src/routes/makeReqResultRouter");
+// app.use(makeReqResultRouter);
 
 // express에 미들웨어를 등록할 때 사용하는 명령어
 const accountsRouter = require("./src/routes/accounts");
@@ -53,30 +57,24 @@ const freeLikeRouter = require("./src/routes/free-like");
 app.use("/free-like", freeLikeRouter);
 
 const adminRouter = require("./src/routes/admin");
+const { Exception } = require("./src/module/Exception");
 app.use("/admin", adminRouter);
 
 app.use((err, req, res, next) => {
-  console.log("에러 미들웨어 진입");
   req.isError = true;
-  //   const log = {
-  //     //accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-  //     //name: `err-handler/${err.name ? err.name : ""}`,
-  //     //rest: err.rest ? err.rest : undefined,
-  //     //createdAt: new Date(),
-  //     //reqParams: req.params,
-  //     //reqBody: req.body,
-  //     result: err.result,
-  //     // code: err.code || 500,
-  //   };
-  //   res.log = log;
+  console.log("error!");
+  //console.log(err);
+  if (err instanceof Exception) {
+    req.code = err.code;
+    req.result = result(null, err.message);
+    return res.status(err.code).send(req.result);
+  }
 
-  res
-    .status(
-      parseInt(err.code) > 99 && parseInt(err.code) < 600
-        ? parseInt(err.code)
-        : 500
-    )
-    .send(req.result);
+  console.log(err); // 에러만 로깅
+
+  req.code = 500;
+  req.result = result(null, err.message);
+  return res.status(500).send(req.result);
 });
 
 app.listen(8000, () => {

@@ -1,91 +1,78 @@
 const router = require("express").Router();
 const { Pool } = require("pg");
-const { psqlPoolClient } = require("../database/postgreSQL");
+const { psqlPoolClient, pgPool } = require("../database/postgreSQL");
 const { checkIsLogged } = require("../middleware/checkIsLogged");
+const { Exception } = require("../module/Exception");
+const wrapper = require("../module/wrapper");
 
-router.post("/:notice_idx", checkIsLogged, async (req, res, next) => {
-  const { accountIdx } = req.session;
-  const { notice_idx } = req.params;
+router.post(
+  "/:noticeIdx",
+  checkIsLogged,
+  wrapper(async (req, res) => {
+    const { accountIdx } = req.session;
+    const { noticeIdx } = req.params;
 
-  const result = { success: false, message: "", data: null };
-  req.result = result;
-  let client = null;
+    const client = await pgPool.connect();
+    try {
+      await client.query(`BEGIN`);
 
-  try {
-    const pool = await new Pool(psqlPoolClient);
-    client = await pool.connect();
-    await client.query(`BEGIN`);
-    await client.query(`SAVEPOINT like_savepoint;`);
+      // SELECT
+      const likeStateResult = await client.query(
+        `SELECT 
+              * 
+          FROM 
+              notice_board.like 
+          WHERE 
+              list_idx = $1 
+          AND 
+              account_idx = $2`,
+        [noticeIdx, accountIdx]
+      );
+      const like = likeStateResult.rows[0];
 
-    const sql = `
-        SELECT * FROM notice_board.like 
-        WHERE list_idx = $1 AND account_idx = $2;
-    `;
-    const values = [notice_idx, accountIdx];
-    const data = await client.query(sql, values);
-
-    if (data.rows.length == 1) {
-      result.message = "이미 좋아요를 눌렀음";
-      req.code = 204;
-
-      res.status(req.code).send(result);
-    } else if (data.rows.length == 0) {
-      const sql2 = `
-        INSERT INTO notice_board.like (list_idx, account_idx)
-        VALUES ($1, $2) RETURNING idx;`;
-      const values2 = [notice_idx, accountIdx];
-      const data2 = await client.query(sql2, values2);
-
-      // 데이터 삽입 실패
-      if (data2.rows.length == 0) {
-        await client.query(`ROLLBACK TO like_savepoint`);
-        result.message = "좋아요 삽입 실패 -> 롤백 완료";
-        next({ code: 500 });
-
-        // 데이터 삽입 성공
-      } else if (data2.rows.length == 1) {
-        const sql3 = `
-            UPDATE notice_board.list
-            SET like_count = like_count + 1 WHERE idx = $1 RETURNING idx;
-            `;
-        const values3 = [notice_idx];
-        const data3 = await client.query(sql3, values3);
-
-        // 데이터 삽입은 성공했으나 업데이트 실패
-        if (data3.rows.length == 0) {
-          await client.query(`ROLLBACK TO like_savepoint`);
-
-          result.message =
-            "server: 좋아요 삽입은 성공했으나 업데이트 실패 -> 롤백 완료";
-          next({ code: 500 });
-
-          // 데이터 삽입과 업데이트 모두 성공
-        } else if (data3.rows.length == 1) {
-          result.message = "server:like success";
-          result.success = true;
-          req.code = 200;
-          res.status(req.code).send(result);
-        }
+      if (like) {
+        throw new Exception(409, "이미 좋아요를 누름");
       }
+
+      // INSERT
+      await client.query(
+        `INSERT INTO notice_board.like 
+              (list_idx, account_idx)
+          VALUES 
+              ($1, $2) 
+          RETURNING idx`,
+        [noticeIdx, accountIdx]
+      );
+
+      // UPDATE
+      await client.query(
+        `UPDATE 
+              notice_board.list
+          SET 
+              like_count = like_count + 1 
+          WHERE 
+              idx = $1 
+          RETURNING 
+              idx`,
+        [noticeIdx]
+      );
+
+      await client.query(`COMMIT`);
+
+      res.status(200).send(result(null, "server:like success"));
+    } catch (err) {
+      await client.query(`ROLLBACK`);
+
+      if (err.code == 23503) {
+        throw new Exception(404, "서버: 존재하지 않는 글에 좋아요 누름");
+      }
+
+      throw err;
+    } finally {
+      client.release();
     }
-  } catch (err) {
-    console.log(err);
-    if (client) {
-      await client.query(`ROLLBACK TO like_savepoint`);
-    }
-    if (err.code == 23503) {
-      result.message = "서버: 존재하지 않는 글에 좋아요 누름";
-      req.code = 404;
-      next({ code: 404 });
-    } else {
-      result.message = err.message ? err.message : "알 수 없는 서버 에러";
-      next(err);
-    }
-  } finally {
-    await client.query(`COMMIT`);
-    client.release();
-  }
-});
+  })
+);
 
 router.delete("/:notice_idx", checkIsLogged, async (req, res, next) => {
   const { accountIdx } = req.session;
@@ -110,9 +97,7 @@ router.delete("/:notice_idx", checkIsLogged, async (req, res, next) => {
     const data = await client.query(sql, values);
 
     if (data.rows.length == 0) {
-      result.message = "아직 좋아요 누르지 않음";
-      req.code = 204;
-      res.status(req.code).send(result);
+      throw new Exception(409, "아직 좋아요 누르지 않음");
     } else if (data.rows.length == 1) {
       const sql2 = `
         DELETE FROM notice_board.like 

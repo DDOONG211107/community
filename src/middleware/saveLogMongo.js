@@ -7,8 +7,8 @@ const saveLogMongo = (req, res, next) => {
 
   res.on("finish", async () => {
     const log = {
-      accountIdx: req.session.accountIdx ? req.session.accountIdx : 0,
-      accountId: req.session.accountId ? req.session.accountId : "",
+      accountIdx: req.session ? req.session.accountIdx : 0,
+      accountId: req.session ? req.session.accountId : "",
       path: req.isError
         ? "error-handler" + req.baseUrl + req.path
         : req.baseUrl + req.path, // req.path
@@ -19,6 +19,7 @@ const saveLogMongo = (req, res, next) => {
       result: req.result, // req.result
       code: req.code || 500, // req.code
     };
+
     try {
       console.log(log);
       mongoConnection = await mongoClient.connect("mongodb://localhost:27017");
