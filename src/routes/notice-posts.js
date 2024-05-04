@@ -4,6 +4,7 @@ const { Exception } = require("../module/Exception");
 const { pgPool } = require("../database/postgreSQL");
 const { checkIsAdmin } = require("../middleware/checkIsAdmin");
 const { Title, Post_content, validate } = require("../middleware/validate");
+const result = require("../module/result");
 
 // 게시글 목록 불러오기
 router.get(

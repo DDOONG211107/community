@@ -3,6 +3,7 @@ const { pgPool } = require("../database/postgreSQL");
 const { checkIsLogin } = require("../middleware/checkIsLogin");
 const { Exception } = require("../module/Exception");
 const wrapper = require("../module/wrapper");
+const result = require("../module/result");
 
 router.post(
   "/:freeIdx",

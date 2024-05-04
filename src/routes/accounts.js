@@ -1,6 +1,5 @@
 const router = require("express").Router();
-const { Pool } = require("pg");
-const { psqlPoolClient, pgPool } = require("../database/postgreSQL");
+const { pgPool } = require("../database/postgreSQL");
 const { checkEmail } = require("../middleware/checkEmail");
 const { checkId } = require("../middleware/checkId");
 const { checkIsLogin } = require("../middleware/checkIsLogin");
