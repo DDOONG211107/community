@@ -9,6 +9,7 @@ const express = require("express"); // express 패키지를 import
 const session = require("express-session");
 const app = express();
 const result = require("./src/module/result");
+const { Exception } = require("./src/module/Exception");
 
 app.use(
   session({
@@ -57,20 +58,25 @@ const freeLikeRouter = require("./src/routes/free-like");
 app.use("/free-like", freeLikeRouter);
 
 const adminRouter = require("./src/routes/admin");
-const { Exception } = require("./src/module/Exception");
 app.use("/admin", adminRouter);
 
 app.use((err, req, res, next) => {
   req.isError = true;
-  console.log("error!");
   //console.log(err);
   if (err instanceof Exception) {
+    console.log("exception!");
     req.code = err.code;
     req.result = result(null, err.message);
     return res.status(err.code).send(req.result);
   }
 
+  console.log("error!");
   console.log(err); // 에러만 로깅
+  if (err.code == 23503) {
+    req.code = 404;
+    req.result = result(null, "서버: 존재하지 않는 리소스에 접근 시도");
+    return res.status(404).send(req.result);
+  }
 
   req.code = 500;
   req.result = result(null, err.message);

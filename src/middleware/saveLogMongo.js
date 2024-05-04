@@ -1,8 +1,7 @@
-const mongoClient = require("mongodb").MongoClient;
+const mongoConnection = require("../database/mongoDB");
+const wrapper = require("../module/wrapper");
 
-const saveLogMongo = (req, res, next) => {
-  let mongoConnection = null;
-
+const saveLogMongo = wrapper((req, res, next) => {
   // 이 안에다 로그를 만들어주고 중복코드 없애기
 
   res.on("finish", async () => {
@@ -20,21 +19,14 @@ const saveLogMongo = (req, res, next) => {
       code: req.code || 500, // req.code
     };
 
-    try {
-      console.log(log);
-      mongoConnection = await mongoClient.connect("mongodb://localhost:27017");
-      await mongoConnection
-        .db(process.env.MONGO_DB_DATABASE)
-        .collection("log")
-        .insertOne(log);
-    } catch (err) {
-      console.log(err);
-    }
-
-    mongoConnection.close();
+    const mongoClient = await mongoConnection();
+    await mongoClient
+      .db(process.env.MONGO_DB_DATABASE)
+      .collection("log")
+      .insertOne(log);
   });
 
   next();
-};
+});
 
 module.exports = saveLogMongo;

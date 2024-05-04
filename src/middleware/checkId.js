@@ -1,5 +1,4 @@
-const { Pool } = require("pg");
-const { psqlPoolClient, pgPool } = require("../database/postgreSQL");
+const { pgPool } = require("../database/postgreSQL");
 const { Exception } = require("../module/Exception");
 const wrapper = require("../module/wrapper");
 

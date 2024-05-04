@@ -1,7 +1,7 @@
-module.exports = (requestHnadler) => {
+module.exports = (requestHandler) => {
   return async (req, res, next) => {
     try {
-      await requestHnadler(req, res, next);
+      await requestHandler(req, res, next);
     } catch (err) {
       return next(err);
     }

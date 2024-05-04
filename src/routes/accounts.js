@@ -3,7 +3,7 @@ const { Pool } = require("pg");
 const { psqlPoolClient, pgPool } = require("../database/postgreSQL");
 const { checkEmail } = require("../middleware/checkEmail");
 const { checkId } = require("../middleware/checkId");
-const { checkIsLogged } = require("../middleware/checkIsLogged");
+const { checkIsLogin } = require("../middleware/checkIsLogin");
 
 const {
   Id,
@@ -33,9 +33,9 @@ router.post(
       req.code = 200;
       throw new Exception(200, "서버: 아이디 또는 비밀번호 오류");
     }
-    req.session.accountIdx = data.rows[0].idx;
-    req.session.role = data.rows[0].role_idx;
-    req.session.accountId = data.rows[0].id;
+    req.session.accountIdx = user.idx;
+    req.session.role = user.role_idx;
+    req.session.accountId = user.id;
 
     req.code = 200;
     req.result = result();
@@ -118,7 +118,7 @@ router.get(
 router.get(
   "/find-password",
   [Email, Id, validate],
-  wrapper(async (req, res, next) => {
+  wrapper(async (req, res) => {
     const { email, id } = req.body;
     const selectResult = await pgPool.query(
       "SELECT * FROM account.list WHERE email = $1 AND id = $2",
@@ -139,7 +139,7 @@ router.get(
 
 router.get(
   "/",
-  checkIsLogged,
+  checkIsLogin,
   wrapper(async (req, res) => {
     const { accountIdx } = req.session;
 
@@ -163,7 +163,7 @@ router.get(
 router.put(
   "/",
   [Name, Nickname, Email, Password, PasswordCheck, validate],
-  checkIsLogged,
+  checkIsLogin,
   checkEmail,
   wrapper(async (req, res) => {
     const { accountIdx } = req.session;
@@ -187,7 +187,7 @@ router.put(
 
 router.delete(
   "/",
-  checkIsLogged,
+  checkIsLogin,
   wrapper(async (req, res, next) => {
     const { accountIdx } = req.session;
 

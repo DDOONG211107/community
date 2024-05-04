@@ -1,143 +1,88 @@
 const router = require("express").Router();
-const { Pool } = require("pg");
-const { psqlPoolClient } = require("../database/postgreSQL");
+const wrapper = require("../module/wrapper");
+const { Exception } = require("../module/Exception");
+const { pgPool } = require("../database/postgreSQL");
 const { checkIsAdmin } = require("../middleware/checkIsAdmin");
 const { Title, Post_content, validate } = require("../middleware/validate");
 
 // 게시글 목록 불러오기
-router.get("/", async (req, res, next) => {
-  const result = {
-    success: false,
-    message: "",
-    data: null,
-  };
-  req.result = result;
-  let client = null;
-
-  try {
-    const pool = await new Pool(psqlPoolClient);
-    client = await pool.connect();
-
-    const sql = `
-    SELECT 
-        notice_board.list.idx, notice_board.list.title,
-        account.list.nickname, notice_board.list.like_count,
-        notice_board.list.created_at 
-    FROM account.list
-    JOIN notice_board.list ON account.list.idx = notice_board.list.account_idx
-    ORDER BY idx;
-    `;
-    const data = await client.query(sql);
-
-    result.data = data.rows;
-    result.success = true;
-    result.message = "get notice lists success";
+router.get(
+  "/",
+  wrapper(async (req, res, next) => {
+    const selectedResult = await pgPool.query(`
+      SELECT 
+          notice_board.list.idx, notice_board.list.title,
+          account.list.nickname, notice_board.list.like_count,
+          notice_board.list.created_at 
+      FROM account.list
+      JOIN notice_board.list ON account.list.idx = notice_board.list.account_idx
+      ORDER BY idx;
+      `);
+    const posts = selectedResult.rows;
 
     req.code = 200;
-    res.status(req.code).send(result);
-  } catch (err) {
-    result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next(err);
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
-});
+    req.result = result({ posts: posts });
+    res.status(200).send(req.result);
+  })
+);
 
-router.get("/:notice_idx", async (req, res, next) => {
-  const { accountIdx } = req.session;
-  const { notice_idx } = req.params;
-
-  const result = {
-    success: false,
-    message: "",
-    data: null,
-  };
-  req.result = result;
-  let client = null;
-
-  try {
-    const pool = await new Pool(psqlPoolClient);
-    client = await pool.connect();
+router.get(
+  "/:notice_idx",
+  wrapper(async (req, res, next) => {
+    const { accountIdx } = req.session;
+    const { notice_idx } = req.params;
 
     if (!notice_idx) {
-      result.message = "게시글 idx 없음";
-      next({ code: 404 });
+      req.code = 404;
+      throw new Exception(404, "게시글 정보 없음");
     }
 
-    const sql = `
+    const selectedResult = await pgPool.query(
+      `
         SELECT notice_board.list.*, account.list.nickname,
             CASE WHEN notice_board.list.account_idx = $1 
             THEN true ELSE false END AS is_mine
         FROM account.list 
         JOIN notice_board.list ON account.list.idx = notice_board.list.account_idx
         WHERE notice_board.list.idx = $2;
-    `;
-    const values = [accountIdx, notice_idx];
-    const data = await client.query(sql, values);
+    `,
+      [accountIdx, notice_idx]
+    );
 
-    if (data.rows.length == 0) {
-      result.message = "존재하지 않는 게시글";
-      next({ code: 404 });
-    } else if (data.rows.length == 1) {
-      result.data = data.rows;
-      result.success = true;
-      result.message = "get notice-item success";
-      req.code = 200;
-      res.status(req.code).send(result);
+    const post = selectedResult.rows[0];
+
+    if (!post) {
+      req.code = 404;
+      throw new Exception(404, "존재하지 않는 게시글");
     }
-  } catch (err) {
-    result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next(err);
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
-});
+
+    req.code = 200;
+    req.result = result({ post: post });
+    res.status(200).send(req.result);
+  })
+);
 
 // 게시글 작성 api
 router.post(
   "/",
   [Title, Post_content, validate],
   checkIsAdmin,
-  async (req, res, next) => {
+  wrapper(async (req, res) => {
     const { accountIdx } = req.session;
     const { title, content } = req.body;
 
-    const result = {
-      success: false,
-      message: "",
-      data: null,
-    };
-    req.result = result;
-    let client = null;
-
-    try {
-      const pool = await new Pool(psqlPoolClient);
-      client = await pool.connect();
-
-      const sql = `
+    await pgPool.query(
+      `
         INSERT INTO notice_board.list (title, content, account_idx)                          
         VALUES ($1, $2, $3);
-       `;
-      const values = [title, content, accountIdx];
-      await client.query(sql, values);
+     `,
+      [title, content, accountIdx]
+    );
 
-      result.message = "서버: 공지글 작성 성공";
-      result.success = true;
-      req.code = 200;
-      res.status(req.code).send(result);
-    } catch (err) {
-      result.message = err.message ? err.message : "알 수 없는 서버 에러";
-      next(err);
-    } finally {
-      if (client) {
-        client.release();
-      }
-    }
-  }
+    req.code = 200;
+    req.result = result();
+    res.status(200).send(req.result);
+  })
 );
 
 // 게시글 수정 api
@@ -145,99 +90,53 @@ router.put(
   "/:notice_idx",
   [Title, Post_content, validate],
   checkIsAdmin,
-  async (req, res, next) => {
+  wrapper(async (req, res, next) => {
     const { notice_idx } = req.params;
     const { accountIdx } = req.session;
     const { title, content } = req.body; // postWriterIdx를 프론트에서 받아오면 안된다
 
-    const result = {
-      success: false,
-      message: "",
-      data: null,
-    };
-    req.result = result;
-    let client = null;
+    if (!notice_idx) {
+      req.code = 404;
+      throw new Exception(404, "게시글 정보 없음");
+    }
 
-    try {
-      if (!notice_idx) {
-        result.message = "게시글 idx 없음";
-        next({ code: 404 });
-      }
-
-      const pool = await new Pool(psqlPoolClient);
-      client = await pool.connect();
-
-      const sql = `
+    await pgPool.query(
+      `
         UPDATE notice_board.list SET title = $1, content = $2 
         WHERE idx = $3 AND account_idx = $4 RETURNING idx
-    `;
-      const values = [title, content, notice_idx, accountIdx];
-      const data = await client.query(sql, values);
+    `,
+      [title, content, notice_idx, accountIdx]
+    );
 
-      if (data.rows.length == 0) {
-        result.message = "server:edit notice post failed";
-        next({ code: 500 });
-      } else if (data.rows.length == 1) {
-        result.message = "server: edit notice post success";
-        result.success = true;
-        req.code = 200;
-        res.status(req.code).send(result);
-      }
-    } catch (err) {
-      result.message = err.message ? err.message : "알 수 없는 서버 에러";
-      next(err);
-    } finally {
-      if (client) {
-        client.release();
-      }
-    }
-  }
+    req.code = 200;
+    req.result = result();
+    res.status(200).send(req.result);
+  })
 );
 
 // 게시글 삭제 api
-router.delete("/:notice_idx", checkIsAdmin, async (req, res, next) => {
-  const { notice_idx } = req.params;
-  const { accountIdx } = req.session;
+router.delete(
+  "/:notice_idx",
+  checkIsAdmin,
+  wrapper(async (req, res, next) => {
+    const { notice_idx } = req.params;
+    const { accountIdx } = req.session;
 
-  const result = {
-    success: false,
-    message: "",
-    data: null,
-  };
-  req.result = result;
-  let client = null;
-
-  try {
     if (!notice_idx) {
-      result.message = "게시글 idx 없음";
-      next({ code: 404 });
+      req.code = 404;
+      throw new Exception(404, "게시글 정보 없음");
     }
 
-    const pool = await new Pool(psqlPoolClient);
-    client = await pool.connect();
-
-    const sql = `
+    await pgPool.query(
+      `
         DELETE FROM notice_board.list 
-        WHERE idx = $1 AND account_idx = $2 RETURNING idx`;
-    const values = [notice_idx, accountIdx];
-    const data = await client.query(sql, values);
+        WHERE idx = $1 AND account_idx = $2 RETURNING idx`,
+      [notice_idx, accountIdx]
+    );
 
-    if (data.rows.length == 0) {
-      result.message = "server:delete notice post failed";
-      next({ code: 500 });
-    } else if (data.rows.length == 1) {
-      result.message = "server: delete notice post success";
-      result.success = true;
-      req.code = 200;
-      res.status(req.code).send(result);
-    }
-  } catch (err) {
-    result.message = err.message ? err.message : "알 수 없는 서버 에러";
-    next(err);
-  } finally {
-    if (client) {
-      client.release();
-    }
-  }
-});
+    req.code = 200;
+    req.result = result();
+    res.status(200).send(req.result);
+  })
+);
 module.exports = router;
