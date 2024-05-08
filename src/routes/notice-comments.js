@@ -10,7 +10,7 @@ const { Exception } = require("../module/Exception");
 router.get(
   "/",
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session;
+    const accountIdx = req.session?.user || 0;
     const { notice_idx } = req.body; // 불러와야 하는 공지글의 idx
 
     if (!notice_idx) {
@@ -43,7 +43,7 @@ router.post(
   [Comment_content, validate],
   checkIsLogin,
   wrapper(async (req, res, next) => {
-    const { accountIdx } = req.session;
+    const accountIdx = req.session?.user || 0;
     const { content, notice_idx } = req.body;
 
     if (!notice_idx) {
@@ -69,7 +69,7 @@ router.put(
   [Comment_content, validate],
   wrapper(async (req, res, next) => {
     const { comment_idx } = req.params;
-    const { accountIdx } = req.session;
+    const accountIdx = req.session?.user || 0;
     const { content } = req.body;
 
     if (!comment_idx) {
@@ -95,7 +95,7 @@ router.delete(
   "/:comment_idx",
   wrapper(async (req, res, next) => {
     const { comment_idx } = req.params;
-    const { accountIdx } = req.session;
+    const accountIdx = req.session?.user || 0;
 
     if (!comment_idx) {
       req.code = 404;

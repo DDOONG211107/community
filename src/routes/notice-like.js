@@ -9,7 +9,7 @@ router.post(
   "/:noticeIdx",
   checkIsLogin,
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session;
+    const { accountIdx } = req.session.user;
     const { noticeIdx } = req.params;
 
     let client = null;
@@ -66,11 +66,6 @@ router.post(
       res.status(200).send(req.result);
     } catch (err) {
       await client.query(`ROLLBACK`);
-
-      //   if (err.code == 23503) {
-      //     throw new Exception(404, "서버: 존재하지 않는 글에 좋아요 누름");
-      //   }
-
       throw err;
     } finally {
       client.release();
@@ -82,7 +77,7 @@ router.delete(
   "/:notice_idx",
   checkIsLogin,
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session;
+    const { accountIdx } = req.session.user;
     const { notice_idx } = req.params;
 
     let client = null;
@@ -142,7 +137,7 @@ router.delete(
 router.get(
   "/:notice_idx",
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session;
+    const accountIdx = req.session?.user?.accountIdx || 0;
     const { notice_idx } = req.params;
 
     const selectedResult = pgPool.query(

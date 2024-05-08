@@ -30,7 +30,7 @@ router.get(
 router.get(
   "/:notice_idx",
   wrapper(async (req, res, next) => {
-    const { accountIdx } = req.session;
+    const accountIdx = req.session?.user?.accountIdx || 0;
     const { notice_idx } = req.params;
 
     if (!notice_idx) {
@@ -69,7 +69,7 @@ router.post(
   [Title, Post_content, validate],
   checkIsAdmin,
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session;
+    const { accountIdx } = req.session.user;
     const { title, content } = req.body;
 
     await pgPool.query(
@@ -93,7 +93,7 @@ router.put(
   checkIsAdmin,
   wrapper(async (req, res, next) => {
     const { notice_idx } = req.params;
-    const { accountIdx } = req.session;
+    const { accountIdx } = req.session.user;
     const { title, content } = req.body; // postWriterIdx를 프론트에서 받아오면 안된다
 
     if (!notice_idx) {
@@ -121,7 +121,7 @@ router.delete(
   checkIsAdmin,
   wrapper(async (req, res, next) => {
     const { notice_idx } = req.params;
-    const { accountIdx } = req.session;
+    const { accountIdx } = req.session.user;
 
     if (!notice_idx) {
       req.code = 404;

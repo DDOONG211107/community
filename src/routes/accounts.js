@@ -32,21 +32,54 @@ router.post(
       req.code = 200;
       throw new Exception(200, "서버: 아이디 또는 비밀번호 오류");
     }
-    req.session.accountIdx = user.idx;
-    req.session.role = user.role_idx;
-    req.session.accountId = user.id;
+
+    const selectSessionResult = await pgPool.query(
+      `
+        SELECT * FROM session WHERE (sess::json -> 'user') ->> 'accountIdx' = $1
+      `,
+      [user.idx]
+    );
+
+    const newSessionId = req.sessionID;
+    const sessions = selectSessionResult.rows;
+
+    for (let i = 0; i < sessions.length; i++) {
+      if (sessions[i].sid != newSessionId) {
+        // console.log("호이");
+        await req.sessionStore.destroy(sessions[i].sid);
+      }
+    }
+
+    req.session.user = {
+      accountIdx: user.idx,
+      role: user.role_idx,
+      accountId: user.id,
+    };
 
     req.code = 200;
     req.result = result();
     res.status(200).send(req.result);
+
+    // console.log(req.session.user);
+    // req.session.save((err) => {
+    //   console.log("최소한 여기는 들어온다");
+    //   if (err) {
+    //     console.error("Session save error:", err);
+    //   }
+    // });
   })
 );
 
 // * 상태를 변경(제출)하는 의미로 쓰면 포스트 (포스트가 권장됨)
 router.delete(
   "/logout",
-  wrapper((req, res) => {
-    req.session.destroy(function (err) {});
+  wrapper(async (req, res) => {
+    // console.log(req.session.user);
+    await req.session.destroy((err) => {
+      if (err) {
+        throw err;
+      }
+    });
 
     req.code = 200;
     req.result = result();
@@ -140,7 +173,7 @@ router.get(
   "/",
   checkIsLogin,
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session;
+    const { accountIdx } = req.session.user;
 
     const selectResult = await pgPool.query(
       "SELECT * FROM account.list WHERE idx = $1",
@@ -165,7 +198,7 @@ router.put(
   checkIsLogin,
   checkEmail,
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session;
+    const { accountIdx } = req.session.user;
     const { name, nickname, email, password, passwordCheck } = req.body;
 
     if (password != passwordCheck) {
@@ -188,7 +221,7 @@ router.delete(
   "/",
   checkIsLogin,
   wrapper(async (req, res, next) => {
-    const { accountIdx } = req.session;
+    const { accountIdx } = req.session.user;
 
     await pgPool.query("DELETE FROM account.list WHERE idx = $1", [accountIdx]);
 

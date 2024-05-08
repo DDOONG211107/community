@@ -3,23 +3,40 @@
 // 로그 모듈에 사용할 데이터를 라우터 안에서 만들지 말기
 // 200번 코드 말고는 전부 에러핸들러로 넘기기 (에러핸들러로 넘길때 상태코드도 같이 넘겨주고)
 
+// store를 따로 하지 않는 기존 세션
+// app.use(
+//   session({
+//     secret: , // *알아볼 수 없는 난수값으로 설정해야 한다 (16진수 난수로)
+//     resave: false,
+//     saveUninitialized: false,
+
+//     cookie: { maxAge: 60 * 60 * 10 },
+//   })
+// );
+
 require("dotenv").config();
 
 const express = require("express"); // express 패키지를 import
-const session = require("express-session");
 const app = express();
 const result = require("./src/module/result");
 const { Exception } = require("./src/module/Exception");
+const { pgPool } = require("./src/database/postgreSQL");
+const session = require("express-session");
+const PGSession = require("connect-pg-simple")(session);
 
 app.use(
   session({
-    secret: "3AF874B5C209D264", // *알아볼 수 없는 난수값으로 설정해야 한다 (16진수 난수로)
+    store: new PGSession({
+      pool: pgPool,
+      tableName: "session",
+    }),
+    secret: process.env.PG_SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-
-    cookie: { maxAge: 60 * 60 * 10 },
+    cookie: { secure: false, maxAge: 60 * 60 * 10 },
   })
 );
+
 app.use(express.json()); // object를 가지고 활용할 수 있게 해주는 코드
 
 // 중요한 토픽 : interceptor 라는 것은 res.send의 오버라이딩
