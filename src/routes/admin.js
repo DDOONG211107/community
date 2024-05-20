@@ -4,6 +4,8 @@ const wrapper = require("../module/wrapper");
 const { checkIsAdmin } = require("../middleware/checkIsAdmin");
 const { StartDate, EndDate, Id, validate } = require("../middleware/validate");
 const result = require("../module/result");
+const redis = require("redis");
+const redisClient = redis.createClient({ host: "localhost", port: 6380 });
 
 router.get(
   "/log",
@@ -12,6 +14,20 @@ router.get(
   wrapper(async (req, res, next) => {
     // string, string, 2000-01-01T00:00:00, 2000-01-01T00:00:00
     const { desc, id, startDateString, endDateString } = req.body;
+
+    // 여기에 이제 검색어부터 redis에 저장하기
+    await redisClient.connect();
+    console.log(Date.now());
+    console.log(id);
+
+    // 억지로 스코어를 음수로 바꿈
+    await redisClient.zAdd(`recentWords_${req.cookies.accountIdx}`, {
+      score: -Date.now(),
+      value: id,
+    });
+    await redisClient.disconnect();
+
+    // redis 끝
 
     let sort = 0;
 
@@ -47,6 +63,39 @@ router.get(
     req.code = 200;
     req.result = result(logArr);
     res.status(200).send(req.result);
+  })
+);
+
+router.get(
+  "/today-users",
+  checkIsAdmin,
+  wrapper(async (req, res, next) => {
+    await redisClient.connect();
+    const today = await redisClient.bitCount("todayUsers_bit");
+    await redisClient.disconnect();
+
+    req.code = 200;
+    req.result = result({ today: today });
+    res.status(200).send(req.result);
+  })
+);
+
+router.get(
+  "/recent-words",
+  checkIsAdmin,
+  wrapper(async (req, res) => {
+    await redisClient.connect();
+
+    const words = await redisClient.zRange(
+      `recentWords_${req.cookies.accountIdx}`,
+      0,
+      4
+    ); // 5개를 가져온다는 뜻
+    await redisClient.disconnect();
+
+    req.code = 200;
+    req.result = result(words);
+    res.status(req.code).send(req.result);
   })
 );
 

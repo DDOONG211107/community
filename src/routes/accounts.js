@@ -1,8 +1,11 @@
 const router = require("express").Router();
+const redis = require("redis");
+const redisClient = redis.createClient({ host: "localhost", port: 6380 });
 const { pgPool } = require("../database/postgreSQL");
 const { checkEmail } = require("../middleware/checkEmail");
 const { checkId } = require("../middleware/checkId");
 const { checkIsLogin } = require("../middleware/checkIsLogin");
+const crypto = require("crypto");
 
 const {
   Id,
@@ -29,36 +32,83 @@ router.post(
     const user = selectResult.rows[0];
 
     if (!user) {
-      req.code = 200;
-      throw new Exception(200, "서버: 아이디 또는 비밀번호 오류");
+      req.code = 400; // 200은 로그인성공과 구분이 안되므로 400으로 바꿨다
+      throw new Exception(400, "서버: 아이디 또는 비밀번호 오류");
     }
 
-    const selectSessionResult = await pgPool.query(
-      `
-        SELECT * FROM session WHERE (sess::json -> 'user') ->> 'accountIdx' = $1
-      `,
-      [user.idx]
-    );
+    await redisClient.connect();
+    await redisClient.setBit("todayUsers_bit", user.idx, 1);
+    await redisClient.hIncrBy("login_count", `${user.idx}`, 1);
 
-    const newSessionId = req.sessionID;
-    const sessions = selectSessionResult.rows;
+    const sessions = await redisClient.hKeys(
+      "redisSession",
+      `user_${user.idx}_*`
+    );
+    console.log(sessions); // [ 'user_1_5e75394c384110753c6c33d85699edd7e1e57db5' ]
 
     for (let i = 0; i < sessions.length; i++) {
-      if (sessions[i].sid != newSessionId) {
-        // console.log("호이");
-        await req.sessionStore.destroy(sessions[i].sid);
-      }
+      await redisClient.hDel("redisSession", sessions[i]);
     }
 
-    req.session.user = {
-      accountIdx: user.idx,
-      role: user.role_idx,
-      accountId: user.id,
-    };
+    const newSessionId = crypto.randomBytes(20).toString("hex");
+    await redisClient.hSet(
+      "redisSession",
+      `user_${user.idx}_${newSessionId}`,
+      JSON.stringify({
+        accountIdx: user.idx,
+        role: user.role_idx,
+        accountId: user.id,
+      })
+    );
+
+    // const newSession = await redisClient.hGet(
+    //   "redisSession",
+    //   `user_${user.idx}_${newSessionId}`
+    // );
+    // console.log(newSession); // {"accountIdx":1,"role":1,"accountId":"admin               "}
+
+    await redisClient.expire(`user_${user.idx}_${newSessionId}`, 60 * 60 * 10);
+    console.log(newSessionId); // 50f23df647485b59b2b03cda462eba9995155c30
+
+    // req.redisSession = {
+    //   sessionId: newSessionId,
+    //   accountIdx: user.idx,
+    //   role: user.role_idx,
+    //   accountId: user.id,
+    // };
+    // console.log(req.redisSession);
+    res.cookie("session", `user_${user.idx}_${newSessionId}`, {
+      httpOnly: true,
+      secure: false,
+    });
+    res.cookie("accountIdx", `${user.idx}`, { httpOnly: true, secure: false });
+
+    await redisClient.disconnect();
 
     req.code = 200;
     req.result = result();
     res.status(200).send(req.result);
+
+    // const selectSessionResult = await pgPool.query(
+    //   `
+    //   SELECT * FROM session WHERE (sess::json -> 'user') ->> 'accountIdx' = $1
+    //   `,
+    //   [user.idx]
+    // );
+    // const newSessionId = req.sessionID;
+    // const sessions = selectSessionResult.rows;
+    // for (let i = 0; i < sessions.length; i++) {
+    //   if (sessions[i].sid != newSessionId) {
+    //     // console.log("호이");
+    //     await req.sessionStore.destroy(sessions[i].sid);
+    //   }
+    // }
+    // req.session.user = {
+    //   accountIdx: user.idx,
+    //   role: user.role_idx,
+    //   accountId: user.id,
+    // };
+    // console.log(req.session.user);
 
     // console.log(req.session.user);
     // req.session.save((err) => {
@@ -74,16 +124,23 @@ router.post(
 router.delete(
   "/logout",
   wrapper(async (req, res) => {
-    // console.log(req.session.user);
-    await req.session.destroy((err) => {
-      if (err) {
-        throw err;
-      }
-    });
+    // // console.log(req.session.user);
+    // await req.session.destroy((err) => {
+    //   if (err) {
+    //     throw err;
+    //   }
+    // });
+
+    await redisClient.connect();
+    const session = req.cookies.session;
+    console.log("로그아웃 안의 세션아이디", session);
+    await redisClient.hDel("redisSession", session);
+    await redisClient.disconnect();
+    // const sessionId = req.redisSession.sessionId;
 
     req.code = 200;
     req.result = result();
-    res.status(200).send(req.result);
+    res.status(req.code).send(req.result); // 200 대신 req.code로 쓰면 유지보수가 편하고, 200으로 쓰면 보기에 편하긴 하다
   })
 );
 
@@ -102,8 +159,8 @@ router.get("/check-id", [Id, validate], checkId, (req, res) => {
 router.post(
   "/",
   [Id, Password, PasswordCheck, Email, Name, Nickname, validate],
-  checkId,
   checkEmail,
+  checkId,
   wrapper(async (req, res) => {
     const { id, email, name, nickname, password, passwordCheck } = req.body;
 
@@ -173,7 +230,7 @@ router.get(
   "/",
   checkIsLogin,
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session.user;
+    const accountIdx = req.cookies.accountIdx;
 
     const selectResult = await pgPool.query(
       "SELECT * FROM account.list WHERE idx = $1",
@@ -198,7 +255,7 @@ router.put(
   checkIsLogin,
   checkEmail,
   wrapper(async (req, res) => {
-    const { accountIdx } = req.session.user;
+    const accountIdx = req.cookies.accountIdx;
     const { name, nickname, email, password, passwordCheck } = req.body;
 
     if (password != passwordCheck) {
@@ -221,13 +278,13 @@ router.delete(
   "/",
   checkIsLogin,
   wrapper(async (req, res, next) => {
-    const { accountIdx } = req.session.user;
-
+    const accountIdx = req.cookies.accountIdx;
     await pgPool.query("DELETE FROM account.list WHERE idx = $1", [accountIdx]);
 
-    req.session.destroy(function (err) {
-      console.log("회원탈퇴 성공");
-    });
+    await redisClient.connect();
+    const session = req.cookies.session;
+    await redisClient.hDel("redisSession", session);
+    await redisClient.disconnect();
 
     req.code = 200;
     req.result = result();

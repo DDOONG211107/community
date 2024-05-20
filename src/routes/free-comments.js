@@ -10,7 +10,7 @@ const { Exception } = require("../module/Exception");
 router.get(
   "/",
   wrapper(async (req, res, next) => {
-    const accountIdx = req.session?.user?.accountIdx || 0;
+    const accountIdx = req.cookies?.accountIdx || 0;
     const { free_idx } = req.body; // 불러와야 하는 자유게시판 글의 idx
 
     if (!free_idx) {
@@ -43,7 +43,7 @@ router.post(
   [Comment_content, validate],
   checkIsLogin,
   wrapper(async (req, res, next) => {
-    const { accountIdx } = req.session.user;
+    const accountIdx = req.cookies.accountIdx;
     const { content, free_idx } = req.body;
 
     if (!free_idx) {
@@ -70,7 +70,7 @@ router.put(
   checkIsLogin,
   wrapper(async (req, res, next) => {
     const { comment_idx } = req.params;
-    const { accountIdx } = req.session.user;
+    const accountIdx = req.cookies.accountIdx;
     const { content } = req.body;
 
     if (!comment_idx) {
@@ -96,8 +96,8 @@ router.delete(
   "/:comment_idx",
   checkIsLogin,
   wrapper(async (req, res, next) => {
+    const accountIdx = req.cookies.accountIdx;
     const { comment_idx } = req.params;
-    const { accountIdx } = req.session.user;
 
     if (!comment_idx) {
       req.code = 404;

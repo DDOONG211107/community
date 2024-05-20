@@ -23,19 +23,22 @@ const { Exception } = require("./src/module/Exception");
 const { pgPool } = require("./src/database/postgreSQL");
 const session = require("express-session");
 const PGSession = require("connect-pg-simple")(session);
+const cookieParser = require("cookie-parser");
+const resetRedis = require("./src/middleware/resetRedis");
+app.use(cookieParser());
 
-app.use(
-  session({
-    store: new PGSession({
-      pool: pgPool,
-      tableName: "session",
-    }),
-    secret: process.env.PG_SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: false, maxAge: 60 * 60 * 10 },
-  })
-);
+// app.use(
+//   session({
+//     store: new PGSession({
+//       pool: pgPool,
+//       tableName: "session",
+//     }),
+//     secret: process.env.PG_SESSION_SECRET,
+//     resave: false,
+//     saveUninitialized: false,
+//     cookie: { secure: false, maxAge: 60 * 60 * 10 },
+//   })
+// );
 
 app.use(express.json()); // object를 가지고 활용할 수 있게 해주는 코드
 

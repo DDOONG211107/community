@@ -1,9 +1,18 @@
 const { pgPool } = require("../database/postgreSQL");
 const { Exception } = require("../module/Exception");
 const wrapper = require("../module/wrapper");
+const redis = require("redis");
+const redisClient = redis.createClient({ host: "localhost", port: 6380 });
 
 const checkId = wrapper(async (req, res, next) => {
-  const accountIdx = req.session?.user?.accountIdx || 0;
+  // 세션 추출
+  await redisClient.connect();
+  const session = req.cookies.session;
+  const sessionData = await redisClient.hGet("redisSession", session);
+  const sessionObject = JSON.parse(sessionData);
+  await redisClient.disconnect();
+
+  const accountIdx = sessionObject?.accountIdx || 0;
   const { id } = req.body;
 
   const selectResult = await pgPool.query(

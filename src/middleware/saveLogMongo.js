@@ -6,8 +6,8 @@ const saveLogMongo = wrapper((req, res, next) => {
 
   res.on("finish", async () => {
     const log = {
-      accountIdx: req.session.user ? req.session.user.accountIdx : 0,
-      accountId: req.session.user ? req.session.user.accountId : "",
+      accountIdx: req.session?.user?.accountIdx || 0,
+      accountId: req.session?.user?.accountId || "",
       path: req.isError
         ? "error-handler" + req.baseUrl + req.path
         : req.baseUrl + req.path, // req.path
@@ -18,6 +18,8 @@ const saveLogMongo = wrapper((req, res, next) => {
       result: req.result, // req.result
       code: req.code || 500, // req.code
     };
+
+    // console.log("!!!!");
 
     const mongoClient = await mongoConnection();
     await mongoClient
